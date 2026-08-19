@@ -15,10 +15,10 @@ except ImportError:
     HAS_PLOTLY = False
 
 # ==============================================================================
-# CONFIGURACIÓN Y ESTILOS
+# CONFIGURACIÓN Y ESTILOS UI
 # ==============================================================================
 st.set_page_config(
-    page_title="QuantOdds Terminal Pro",
+    page_title="QuantOdds Terminal Pro v2",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -89,9 +89,12 @@ st.markdown("""
     .ticket-card { border-radius: 10px; padding: 16px; margin-bottom: 20px; border: 1px solid #1E293B; }
     .ticket-no-trade { background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.3); }
     .ticket-trade { background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.3); }
+    .ticket-warning { background: rgba(245, 158, 11, 0.05); border-color: rgba(245, 158, 11, 0.3); }
+    
     .ticket-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
     .badge-no-trade { background: #EF4444; color: #FFF; }
     .badge-trade { background: #10B981; color: #FFF; }
+    .badge-warning { background: #F59E0B; color: #000; }
 
     .exec-grid {
         display: grid;
@@ -114,11 +117,20 @@ st.markdown("""
         margin-top: 10px;
         border-radius: 0 4px 4px 0;
     }
+    .danger-chip {
+        background: rgba(239, 68, 68, 0.1);
+        border-left: 3px solid #EF4444;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        color: #FCA5A5;
+        margin-top: 10px;
+        border-radius: 0 4px 4px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# INTEGRACIÓN DE LIGAS (INCLUYE SUDAMERICANA)
+# INTEGRACIÓN DE LIGAS
 # ==============================================================================
 SPORTS_DICT = {
     "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
@@ -147,7 +159,7 @@ def fetch_odds_api(api_key: str, sport_key: str, region: str = "eu") -> Tuple[Op
         return None, f"Error de red: {str(e)}"
 
 # ==============================================================================
-# CÁLCULOS MATEMÁTICOS
+# MOTORES MATEMÁTICOS Y CUANTITATIVOS
 # ==============================================================================
 class DixonColesEngine:
     @staticmethod
@@ -169,6 +181,51 @@ class DixonColesEngine:
         s = np.sum(m)
         return m / s if s > 0 else m
 
+    @classmethod
+    def calculate_ah_ev(cls, matrix: np.ndarray, line: float, odds: float) -> Tuple[float, float]:
+        """Calcula el Retorno Esperado (EV) y la probabilidad equivalente para Hándicap Asiático."""
+        expected_payoff = 0.0
+        for x in range(matrix.shape[0]):
+            for y in range(matrix.shape[1]):
+                diff = (x - y) + line
+                p = matrix[x, y]
+                if diff >= 0.5:
+                    expected_payoff += p * odds
+                elif diff == 0.25:
+                    expected_payoff += p * (0.5 * odds + 0.5)
+                elif diff == 0.0:
+                    expected_payoff += p * 1.0
+                elif diff == -0.25:
+                    expected_payoff += p * 0.5
+                else:
+                    expected_payoff += p * 0.0
+        ev = expected_payoff - 1.0
+        fair_prob = max(0.001, expected_payoff / odds)
+        return ev, fair_prob
+
+    @classmethod
+    def calculate_ou_ev(cls, matrix: np.ndarray, line: float, odds: float) -> Tuple[float, float]:
+        """Calcula el Retorno Esperado (EV) y probabilidad equivalente para Over/Under Asiático."""
+        expected_payoff = 0.0
+        for x in range(matrix.shape[0]):
+            for y in range(matrix.shape[1]):
+                total_goals = x + y
+                diff = total_goals - line
+                p = matrix[x, y]
+                if diff >= 0.5:
+                    expected_payoff += p * odds
+                elif diff == 0.25:
+                    expected_payoff += p * (0.5 * odds + 0.5)
+                elif diff == 0.0:
+                    expected_payoff += p * 1.0
+                elif diff == -0.25:
+                    expected_payoff += p * 0.5
+                else:
+                    expected_payoff += p * 0.0
+        ev = expected_payoff - 1.0
+        fair_prob = max(0.001, expected_payoff / odds)
+        return ev, fair_prob
+
 class ShinEngine:
     @classmethod
     def deoverround(cls, o1: float, ox: float, o2: float) -> Tuple[float, float, float, float]:
@@ -184,18 +241,21 @@ class ShinEngine:
             z = max(0.0001, min(0.4, z + (beta - n_beta) * 0.1))
         return float(p[0]), float(p[1]), float(p[2]), float(z)
 
-class ReverseEngine:
-    @classmethod
-    def extract_xg(cls, target_p1: float, target_px: float, target_p2: float) -> Tuple[float, float]:
-        def loss(p):
-            lh, ma = p
-            if lh <= 0.05 or ma <= 0.05: return 999.0
-            m = DixonColesEngine.generate_matrix(lh, ma)
-            p1, px, p2 = float(np.sum(np.tril(m, -1))), float(np.sum(np.diag(m))), float(np.sum(np.triu(m, 1)))
-            return (p1 - target_p1)**2 + (px - target_px)**2 + (p2 - target_p2)**2
-        res = minimize(loss, [1.35, 1.05], bounds=[(0.05, 5.0), (0.05, 5.0)], method='L-BFGS-B')
-        return round(float(res.x[0]), 2), round(float(res.x[1]), 2)
+@st.cache_data(ttl=3600)
+def extract_xg_cached(sp1: float, spx: float, sp2: float) -> Tuple[float, float]:
+    """Optimización de xG implícitos almacenada en caché."""
+    def loss(p):
+        lh, ma = p
+        if lh <= 0.05 or ma <= 0.05: return 999.0
+        m = DixonColesEngine.generate_matrix(lh, ma)
+        p1, px, p2 = float(np.sum(np.tril(m, -1))), float(np.sum(np.diag(m))), float(np.sum(np.triu(m, 1)))
+        return (p1 - sp1)**2 + (px - spx)**2 + (p2 - sp2)**2
+    res = minimize(loss, [1.35, 1.05], bounds=[(0.05, 5.0), (0.05, 5.0)], method='L-BFGS-B')
+    return round(float(res.x[0]), 2), round(float(res.x[1]), 2)
 
+# ==============================================================================
+# DATACLASSES Y VALIDACIÓN DE MERCADO
+# ==============================================================================
 @dataclass
 class DirectionalForecast:
     market_favorite: str
@@ -211,6 +271,7 @@ class DirectionalForecast:
 class TradeOrder:
     action: str
     is_approved: bool
+    status_type: str  # 'trade', 'no-trade', 'warning'
     best_market: str
     target_selection: str
     captured_odds: float
@@ -239,10 +300,9 @@ def analyze_match_complete(
 
     # Mercado Implícito Desmarginado (Shin)
     sp1, spx, sp2, z = ShinEngine.deoverround(o1, ox, o2)
-    imp_lh, imp_mu = ReverseEngine.extract_xg(sp1, spx, sp2)
+    imp_lh, imp_mu = extract_xg_cached(sp1, spx, sp2)
 
-    # 1. PRONÓSTICO DIRECCIONAL BASADO EN MERCADO DE CONSENSO (SHIN HEAVY)
-    # Evaluamos objetivamente la mayor probabilidad del mercado
+    # 1. PRONÓSTICO DIRECCIONAL (TENDENCIA DEL MERCADO CONSENSO)
     mkt_probs = {"1": sp1, "X": spx, "2": sp2}
     best_mkt_key = max(mkt_probs, key=mkt_probs.get)
 
@@ -258,9 +318,8 @@ def analyze_match_complete(
 
     mkt_fav = home_team if sp1 > sp2 else away_team
 
-    # Goles según mercado
     m_mkt = DixonColesEngine.generate_matrix(imp_lh, imp_mu)
-    p_over_mkt = sum(m_mkt[x, y] for x in range(m_mkt.shape[0]) for y in range(m_mkt.shape[1]) if (x + y) > ou_line)
+    ev_ou_mkt, p_over_mkt = DixonColesEngine.calculate_ou_ev(m_mkt, ou_line, 2.0)
     
     if p_over_mkt > 0.50:
         goals_trend = f"Over {ou_line} Goles"
@@ -269,7 +328,6 @@ def analyze_match_complete(
         goals_trend = f"Under {ou_line} Goles"
         goals_conf = 1.0 - p_over_mkt
 
-    # Hándicap según mercado
     if sp1 >= sp2:
         handicap_forecast = f"{home_team} cubre {ah_line}"
     else:
@@ -290,37 +348,41 @@ def analyze_match_complete(
         score_probability=round(best_score_prob * 100, 1)
     )
 
-    # 2. CÁLCULO DE VALOR (+EV) CONTRA EL MODELO PROPIO
+    # 2. CÁLCULO EXACTO DE VALOR (+EV) SOBRE EL MODELO PROPIO
     ev_1x2_home = (m_p1 * o1) - 1.0
-    p_ah_home = m_p1 * 0.88 + m_px * 0.5
-    ev_ah = (p_ah_home * ah_home_o) - 1.0
-    p_over_model = sum(m[x, y] for x in range(m.shape[0]) for y in range(m.shape[1]) if (x + y) > ou_line)
-    ev_ou = (p_over_model * over_o) - 1.0
+    ev_ah, p_ah_eff = DixonColesEngine.calculate_ah_ev(m, ah_line, ah_home_o)
+    ev_ou, p_ou_eff = DixonColesEngine.calculate_ou_ev(m, ou_line, over_o)
 
     ev_dict = {
         "1X2 Local": (ev_1x2_home, o1, m_p1, f"Local ({home_team}) @ {o1}"),
-        f"AH {ah_line} Local": (ev_ah, ah_home_o, p_ah_home, f"AH {ah_line} {home_team} @ {ah_home_o}"),
-        f"Over {ou_line} Goles": (ev_ou, over_o, p_over_model, f"Over {ou_line} @ {over_o}")
+        f"AH {ah_line} Local": (ev_ah, ah_home_o, p_ah_eff, f"AH {ah_line} {home_team} @ {ah_home_o}"),
+        f"Over {ou_line} Goles": (ev_ou, over_o, p_ou_eff, f"Over {ou_line} @ {over_o}")
     }
 
     best_market_name = max(ev_dict, key=lambda k: ev_dict[k][0])
     best_ev, best_odds, best_prob, best_selection = ev_dict[best_market_name]
 
+    # 3. FILTRO ANTI-TRAMPAS Y SHARP BENCHMARK
     warnings = []
     is_approved = True
+    status_type = "trade"
 
-    # FILTROS DE TRAMPA DE MERCADO Y DIVERGENCIA
-    if abs(imp_lh - f_lh) > 0.55:
-        is_approved = False
-        warnings.append(f"🚨 Divergencia xG Crítica: El mercado proyecta {imp_lh} goles de {home_team} pero tu modelo ingresó {f_lh}. Cuota posiblemente distorsionada.")
+    odds_divergence = (ah_home_o - pin_ah_o) / pin_ah_o if pin_ah_o > 0 else 0.0
 
-    if ev_1x2_home > 0.30:
+    if odds_divergence > 0.10 or best_ev > 0.25:
         is_approved = False
-        warnings.append(f"🚨 Alerta de Cuota Inflada (+EV masivo de {ev_1x2_home*100:.1f}%): Mercado detecta riesgo extremo/lesiones que el modelo no contempla.")
+        status_type = "no-trade"
+        warnings.append(f"🚨 TRAMPA DE MERCADO / CUOTA INFLADA: La cuota Soft ({ah_home_o}) excede anormalmente la referencia Sharp ({pin_ah_o}) o presenta un +EV irreal ({best_ev*100:.1f}%). Posible lesión/noticia no contemplada.")
 
-    if best_ev < min_ev_threshold:
+    if z > 0.045:
         is_approved = False
-        warnings.append(f"Mercado Eficiente: EV ({best_ev*100:+.1f}%) no supera el margen mínimo de seguridad ({min_ev_threshold*100:.1f}%).")
+        status_type = "warning"
+        warnings.append(f"⚠️ ASIMETRÍA DE INFORMACIÓN (z={z:.4f}): Flujo inusual detectado en casas profesionales. El mercado está ajustando cuotas de forma agresiva.")
+
+    if best_ev < min_ev_threshold and is_approved:
+        is_approved = False
+        status_type = "warning"
+        warnings.append(f"🎯 MERCADO EFICIENTE / CONSENSO: No existe ventaja financiera (+EV de {best_ev*100:+.1f}% es inferior al umbral del {min_ev_threshold*100:.1f}%).")
 
     kelly_fraction = 0.0
     if is_approved and best_ev > 0:
@@ -334,17 +396,18 @@ def analyze_match_complete(
 
     if is_approved:
         action_text = "EJECUTAR ORDEN (+EV VALIDADO)"
-        narrative = f"Ventaja confirmada en **{best_market_name}** con **EV de {best_ev*100:+.2f}%**."
+        narrative = f"Oportunidad legítima detectada en **{best_market_name}** con **EV de {best_ev*100:+.2f}%** sin señales de trampa."
     else:
-        action_text = "ABSTENERSE / RIESGO DE MERCADO"
-        narrative = f"Tendencia del mercado apunta a **{exp_outcome}**, pero no se valida ejecución financiera por divergencias o cuota ajustada."
+        action_text = "ABSTENERSE / BLOQUEO DE SEGURIDAD"
+        narrative = f"El mercado se orienta hacia **{exp_outcome}**, pero la ejecución financiera se cancela para proteger el capital."
 
     order = TradeOrder(
-        action=action_text, is_approved=is_approved, best_market=best_market_name,
-        target_selection=best_selection, captured_odds=best_odds,
-        fair_odds=round(1.0 / max(0.001, best_prob), 2), ev_pct=round(best_ev * 100, 2),
-        kelly_stake_pct=kelly_stake_pct, max_risk_cap_amount=max_risk_cap_amount,
-        warnings=warnings, narrative_reason=narrative
+        action=action_text, is_approved=is_approved, status_type=status_type,
+        best_market=best_market_name, target_selection=best_selection,
+        captured_odds=best_odds, fair_odds=round(1.0 / max(0.001, best_prob), 2),
+        ev_pct=round(best_ev * 100, 2), kelly_stake_pct=kelly_stake_pct,
+        max_risk_cap_amount=max_risk_cap_amount, warnings=warnings,
+        narrative_reason=narrative
     )
 
     metrics = {
@@ -357,7 +420,7 @@ def analyze_match_complete(
     return m, metrics, forecast, order
 
 # ==============================================================================
-# INTERFAZ Y SIDEBAR
+# INTERFAZ SIDEBAR
 # ==============================================================================
 st.sidebar.title("⚡ QuantOdds Terminal")
 st.sidebar.markdown("---")
@@ -408,30 +471,36 @@ st.sidebar.markdown("**Métricas xG (Modelo)**")
 f_lh = st.sidebar.number_input("xG Local (λ)", value=0.88, step=0.05)
 f_mu = st.sidebar.number_input("xG Visitante (μ)", value=1.17, step=0.05)
 
-st.sidebar.markdown("**Cuotas Mercado**")
+st.sidebar.markdown("**Cuotas Mercado Soft**")
 o1 = st.sidebar.number_input("Cuota 1", value=def_o1, step=0.01)
 ox = st.sidebar.number_input("Cuota X", value=def_ox, step=0.01)
 o2 = st.sidebar.number_input("Cuota 2", value=def_o2, step=0.01)
 
 ah_line = st.sidebar.number_input("Línea AH", value=def_ah_line, step=0.25)
-ah_o = st.sidebar.number_input("Cuota AH Local", value=def_ah_o, step=0.01)
+ah_o = st.sidebar.number_input("Cuota AH Local Soft", value=def_ah_o, step=0.01)
 ou_line = st.sidebar.number_input("Línea Totales", value=def_ou_line, step=0.25)
 over_o = st.sidebar.number_input("Cuota Over", value=def_over_o, step=0.01)
-pin_ah = st.sidebar.number_input("Ref. Pinnacle", value=1.91, step=0.01)
+
+st.sidebar.markdown("**Benchmark Sharp (Pinnacle)**")
+pin_ah = st.sidebar.number_input("Ref. Pinnacle AH Local", value=1.80, step=0.01)
 
 matrix, metrics, forecast, order = analyze_match_complete(
     home_team, away_team, f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah, bankroll
 )
 
+# ==============================================================================
+# RENDERIZADO PRINCIPAL
+# ==============================================================================
+
 # 1. HEADER
 st.markdown(f"""
 <div class="match-header">
     <div class="match-title">🏟️ {home_team} vs {away_team}</div>
-    <div class="match-subtitle">ANÁLISIS DIRECCIONAL DE MERCADO Y EVALUACIÓN DE RIESGO</div>
+    <div class="match-subtitle">EVALUACIÓN CUANTITATIVA Y FILTRADO ANTI-TRAMPAS DE MERCADO</div>
 </div>
 """, unsafe_allow_html=True)
 
-# 2. PRONÓSTICO DIRECCIONAL OBJETIVO (TENDENCIA DEL PARTIDO)
+# 2. PRONÓSTICO DIRECCIONAL OBJETIVO
 st.markdown(f"""
 <div class="forecast-container">
     <div class="forecast-title">🔮 TENDENCIA DIRECCIONAL DE MERCADO (LO MÁS PROBABLE)</div>
@@ -460,7 +529,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 3. KPIs METRICAS CLAVE
+# 3. METRICAS CLAVE
 def get_cls(val):
     if val > 0: return "val-positive"
     if val < 0: return "val-negative"
@@ -471,22 +540,26 @@ st.markdown(f"""
     <div class="kpi-card"><div class="kpi-label">EV Hándicap</div><div class="kpi-value {get_cls(metrics['ev_ah'])}">{metrics['ev_ah']:+.1f}%</div></div>
     <div class="kpi-card"><div class="kpi-label">EV Mercado 1X2</div><div class="kpi-value {get_cls(metrics['ev_1x2'])}">{metrics['ev_1x2']:+.1f}%</div></div>
     <div class="kpi-card"><div class="kpi-label">EV Over/Under</div><div class="kpi-value {get_cls(metrics['ev_ou'])}">{metrics['ev_ou']:+.1f}%</div></div>
-    <div class="kpi-card"><div class="kpi-label">xG Casa Impl.</div><div class="kpi-value val-white">{metrics['imp_lh']} / {metrics['imp_mu']}</div></div>
+    <div class="kpi-card"><div class="kpi-label">xG Implícitos</div><div class="kpi-value val-white">{metrics['imp_lh']} / {metrics['imp_mu']}</div></div>
     <div class="kpi-card"><div class="kpi-label">Shin (Insider z)</div><div class="kpi-value val-neutral">{metrics['shin_z']:.4f}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
-# 4. TICKET DE EJECUCIÓN FINANCIERA
-ticket_cls = "ticket-trade" if order.is_approved else "ticket-no-trade"
-badge_cls = "badge-trade" if order.is_approved else "badge-no-trade"
-warnings_html = "".join([f'<div class="warning-chip">{w}</div>' for w in order.warnings])
+# 4. TICKET DE EJECUCIÓN
+ticket_cls = f"ticket-{order.status_type}"
+badge_cls = f"badge-{order.status_type}"
+
+warnings_html = ""
+for w in order.warnings:
+    chip_type = "danger-chip" if "TRAMPA" in w else "warning-chip"
+    warnings_html += f'<div class="{chip_type}">{w}</div>'
 
 st.markdown(f"""
 <div class="ticket-card {ticket_cls}">
     <div><span class="ticket-badge {badge_cls}">{order.action}</span></div>
     <p style="margin: 8px 0 0 0; font-size: 0.88rem; color: #CBD5E1;">{order.narrative_reason}</p>
     <div class="exec-grid">
-        <div><div class="exec-item-label">Selección Recomendada</div><div class="exec-item-val">{order.target_selection if order.is_approved else 'Ninguna (Mercado Riesgoso)'}</div></div>
+        <div><div class="exec-item-label">Selección Recomendada</div><div class="exec-item-val">{order.target_selection if order.is_approved else 'Ninguna (Bloqueado)'}</div></div>
         <div><div class="exec-item-label">Cuota Justa / Mercado</div><div class="exec-item-val">{order.fair_odds} / {order.captured_odds if order.is_approved else 'N/A'}</div></div>
         <div><div class="exec-item-label">Esperanza (+EV)</div><div class="exec-item-val {get_cls(order.ev_pct)}">{order.ev_pct:+.2f}%</div></div>
         <div><div class="exec-item-label">Stake Sugerido (Kelly)</div><div class="exec-item-val">{order.kelly_stake_pct}% (${order.max_risk_cap_amount:,.1f})</div></div>
@@ -495,7 +568,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 5. GRÁFICOS OPTIMIZADOS PARA MÓVIL
+# 5. VISUALIZACIONES
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
