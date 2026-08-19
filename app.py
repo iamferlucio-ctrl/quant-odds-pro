@@ -1,4 +1,5 @@
 import streamlit as st
+import requests
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -20,31 +21,70 @@ st.markdown("""
     <style>
     .main { padding-top: 1rem; }
     .stMetric { background-color: #161B22; padding: 15px; border-radius: 8px; border: 1px solid #30363D; }
-    .stAlert { margin-top: 1rem; }
-    .status-card { padding: 20px; border-radius: 8px; margin-bottom: 20px; }
     </style>
 """, unsafe_allow_html=True)
+
+# ==============================================================================
+# SERVICIO DE CONEXIÓN A THE-ODDS-API (INCLUYE SUDAMÉRICA Y EUROPA)
+# ==============================================================================
+class OddsAPIService:
+    """Gestiona la obtención automática de partidos y cuotas en tiempo real."""
+    
+    LEAGUES = {
+        # --- SUDAMÉRICA & CONMEBOL ---
+        "Copa Libertadores": "soccer_conmebol_copa_libertadores",
+        "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
+        "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
+        "Brasileirão Série A (Brasil)": "soccer_brazil_campeonato",
+        "Liga BetPlay (Colombia)": "soccer_colombia_primer_a",
+        "Primera División (Chile)": "soccer_chile_campeonato",
+        "Liga 1 (Perú)": "soccer_peru_liga_1",
+        
+        # --- EUROPA & INTERNACIONAL ---
+        "UEFA Champions League": "soccer_uefa_champs_league",
+        "Premier League (Inglaterra)": "soccer_epl",
+        "La Liga (España)": "soccer_spain_la_liga",
+        "Serie A (Italia)": "soccer_italy_serie_a",
+        "Bundesliga (Alemania)": "soccer_germany_bundesliga",
+    }
+
+    @classmethod
+    def get_api_key(cls) -> Optional[str]:
+        if "ODDS_API_KEY" in st.secrets:
+            return st.secrets["ODDS_API_KEY"]
+        return st.sidebar.text_input("🔑 API Key (The-Odds-API):", type="password")
+
+    @classmethod
+    def fetch_upcoming_matches(cls, sport_key: str, api_key: str) -> List[Dict]:
+        url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+        params = {
+            "apiKey": api_key,
+            "regions": "eu,us",
+            "markets": "h2h,spreads,totals",
+            "oddsFormat": "decimal"
+        }
+        try:
+            res = requests.get(url, params=params, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            else:
+                st.sidebar.error(f"Error API ({res.status_code}): Verifica tu API Key.")
+                return []
+        except Exception as e:
+            st.sidebar.error(f"Error de conexión: {e}")
+            return []
 
 # ==============================================================================
 # 1. MOTOR ESTOCÁSTICO BIVARIADO (DIXON-COLES)
 # ==============================================================================
 class DixonColesEngine:
-    """
-    Calcula la matriz bivariada de probabilidad de marcadores exactos (10x10)
-    ajustando la dependencia de goles en marcadores bajos mediante el parámetro tau (ρ).
-    """
     @staticmethod
     def tau_adjustment(x: int, y: int, lambda_h: float, mu_a: float, rho: float) -> float:
-        if x == 0 and y == 0:
-            return 1.0 - (lambda_h * mu_a * rho)
-        elif x == 0 and y == 1:
-            return 1.0 + (lambda_h * rho)
-        elif x == 1 and y == 0:
-            return 1.0 + (mu_a * rho)
-        elif x == 1 and y == 1:
-            return 1.0 - rho
-        else:
-            return 1.0
+        if x == 0 and y == 0: return 1.0 - (lambda_h * mu_a * rho)
+        elif x == 0 and y == 1: return 1.0 + (lambda_h * rho)
+        elif x == 1 and y == 0: return 1.0 + (mu_a * rho)
+        elif x == 1 and y == 1: return 1.0 - rho
+        return 1.0
 
     @classmethod
     def generate_score_matrix(cls, lambda_h: float, mu_a: float, rho: float = -0.05, max_goals: int = 10) -> np.ndarray:
@@ -55,7 +95,6 @@ class DixonColesEngine:
                 p_y = (exp(-mu_a) * (mu_a ** y)) / factorial(y)
                 adj = cls.tau_adjustment(x, y, lambda_h, mu_a, rho)
                 matrix[x, y] = max(0.0, p_x * p_y * adj)
-        
         sum_m = np.sum(matrix)
         return matrix / sum_m if sum_m > 0 else matrix
 
@@ -63,84 +102,52 @@ class DixonColesEngine:
 # 2. DESMARCADO AVANZADO DE SHIN (PARÁMETRO z)
 # ==============================================================================
 class ShinEngine:
-    """
-    Resuelve el parámetro z de Shin mediante búsqueda iterativa para cuantificar 
-    el volumen de dinero de insiders y obtener probabilidades sin margen.
-    """
     @classmethod
     def deoverround_1x2(cls, odds_1: float, odds_x: float, odds_2: float) -> Tuple[float, float, float, float]:
         if odds_1 <= 1.0 or odds_x <= 1.0 or odds_2 <= 1.0:
             return 0.333, 0.333, 0.333, 0.0
-
         raw_probs = np.array([1.0 / odds_1, 1.0 / odds_x, 1.0 / odds_2])
         beta = np.sum(raw_probs)
-        
-        # Resolver z numéricamente
         z = max(0.0001, (beta - 1.0) / 0.25)
-        
         for _ in range(20):
             p = (np.sqrt(z**2 + 4 * (1 - z) * (raw_probs / beta)) - z) / (2 * (1 - z))
             p = p / np.sum(p)
             new_beta = np.sum(raw_probs / (z + (1 - z) * p))
-            if abs(new_beta - beta) < 1e-6:
-                break
+            if abs(new_beta - beta) < 1e-6: break
             z = max(0.0001, min(0.4, z + (beta - new_beta) * 0.1))
-
         return float(p[0]), float(p[1]), float(p[2]), float(z)
 
 # ==============================================================================
 # 3. MOTOR DE INGENIERÍA INVERSA (OPTIMIZACIÓN SCIPY L-BFGS-B)
 # ==============================================================================
 class ReverseEngineeringEngine:
-    """
-    Toma las probabilidades desmarginadas del mercado y aplica optimización numérica 
-    para reconstruir los goles esperados implícitos (λ_imp y μ_imp) asumidos por la casa.
-    """
     @classmethod
     def extract_implied_xg(cls, target_p1: float, target_px: float, target_p2: float) -> Tuple[float, float, float]:
         def loss_function(params):
             lh, ma = params
-            if lh <= 0.05 or ma <= 0.05:
-                return 999.0
-            
+            if lh <= 0.05 or ma <= 0.05: return 999.0
             matrix = DixonColesEngine.generate_score_matrix(lh, ma, rho=-0.05, max_goals=8)
             p1 = float(np.sum(np.tril(matrix, -1)))
             px = float(np.sum(np.diag(matrix)))
             p2 = float(np.sum(np.triu(matrix, 1)))
-            
-            loss = (p1 - target_p1)**2 + (px - target_px)**2 + (p2 - target_p2)**2
-            return loss
+            return (p1 - target_p1)**2 + (px - target_px)**2 + (p2 - target_p2)**2
 
-        initial_guess = [1.35, 1.05]
-        bounds = [(0.05, 5.0), (0.05, 5.0)]
-        
-        res = minimize(loss_function, initial_guess, bounds=bounds, method='L-BFGS-B')
-        lh_opt, ma_opt = round(float(res.x[0]), 2), round(float(res.x[1]), 2)
-        fit_error = float(res.fun)
-        
-        return lh_opt, ma_opt, fit_error
+        res = minimize(loss_function, [1.35, 1.05], bounds=[(0.05, 5.0), (0.05, 5.0)], method='L-BFGS-B')
+        return round(float(res.x[0]), 2), round(float(res.x[1]), 2), float(res.fun)
 
 # ==============================================================================
-# 4. DECONVOLUCIÓN MULTIMERCADO (PROYECCIÓN DE MATRIZ)
+# 4. DECONVOLUCIÓN MULTIMERCADO
 # ==============================================================================
 class MultiMarketDeconvolution:
-    """Deriva simultáneamente probabilidades de todos los mercados desde la matriz estocástica."""
     def __init__(self, score_matrix: np.ndarray):
         self.M = score_matrix
         self.max_g = score_matrix.shape[0]
 
     def get_1x2(self) -> Tuple[float, float, float]:
-        p1 = float(np.sum(np.tril(self.M, -1)))
-        px = float(np.sum(np.diag(self.M)))
-        p2 = float(np.sum(np.triu(self.M, 1)))
-        return p1, px, p2
+        return float(np.sum(np.tril(self.M, -1))), float(np.sum(np.diag(self.M))), float(np.sum(np.triu(self.M, 1)))
 
     def get_totals(self, line: float = 2.5) -> Tuple[float, float]:
-        over_prob = 0.0
-        for x in range(self.max_g):
-            for y in range(self.max_g):
-                if (x + y) > line:
-                    over_prob += self.M[x, y]
+        over_prob = sum(self.M[x, y] for x in range(self.max_g) for y in range(self.max_g) if (x + y) > line)
         return over_prob, 1.0 - over_prob
 
     def get_btts(self) -> Tuple[float, float]:
@@ -166,13 +173,9 @@ class MultiMarketDeconvolution:
                 elif line == -1.0:
                     if diff > 1: prob_win += self.M[x, y]
                     elif diff == 1: prob_win += self.M[x, y] * 0.5
-                elif line == -1.25:
-                    if diff > 1: prob_win += self.M[x, y]
-                    elif diff == 1: prob_win += self.M[x, y] * 0.25
-                elif line == -1.5:
-                    if diff > 1: prob_win += self.M[x, y]
+                elif line < 0:
+                    if (diff + line) > 0: prob_win += self.M[x, y]
                 elif line > 0:
-                    # Hándicaps positivos para el local
                     if (diff + line) > 0: prob_win += self.M[x, y]
                     elif (diff + line) == 0: prob_win += self.M[x, y] * 0.5
         return min(1.0, max(0.0, prob_win))
@@ -200,24 +203,19 @@ class QuantAuditor:
         odds_1: float, odds_x: float, odds_2: float,
         ah_line: float, ah_home_odds: float,
         ou_line: float, over_odds: float,
-        btts_yes_odds: float, pinnacle_ah_odds: float,
-        kelly_fraction: float = 0.20
+        pinnacle_ah_odds: float, kelly_fraction: float = 0.20
     ) -> Tuple[np.ndarray, AuditResult]:
         
-        # 1. Matriz Fundamental (Forward)
         matrix = DixonColesEngine.generate_score_matrix(fundamental_lambda, fundamental_mu)
         deconv = MultiMarketDeconvolution(matrix)
         
-        # 2. Probabilidades teóricas del modelo
         m_p1, _, _ = deconv.get_1x2()
         m_over, _ = deconv.get_totals(ou_line)
         m_ah_home = deconv.get_asian_handicap(ah_line)
         
-        # 3. Desmarcado de Shin e Ingeniería Inversa
         s_p1, s_px, s_p2, shin_z = ShinEngine.deoverround_1x2(odds_1, odds_x, odds_2)
         imp_lambda, imp_mu, _ = ReverseEngineeringEngine.extract_implied_xg(s_p1, s_px, s_p2)
         
-        # 4. Cálculo de EV Real por Mercado
         ev_1 = (m_p1 * odds_1) - 1.0
         ev_ah = (m_ah_home * ah_home_odds) - 1.0
         ev_totals = (m_over * over_odds) - 1.0
@@ -225,7 +223,6 @@ class QuantAuditor:
         warnings = []
         is_valid = True
         
-        # --- FILTROS DISCREPANCIALES Y TRAMPAS DE VALOR ---
         if ev_1 > 0.035 and ev_ah < -0.015:
             warnings.append(
                 f"🚨 TRAMPA DE LIQUIDEZ (+EV Falso en 1X2): El 1X2 marca +{ev_1*100:.1f}%, "
@@ -236,7 +233,7 @@ class QuantAuditor:
         if abs(imp_lambda - fundamental_lambda) > 0.6 and ev_1 > 0.05:
             warnings.append(
                 f"🚨 DESVIACIÓN EXTREMA DE xG: El mercado asume xG Local de {imp_lambda}, "
-                f"mientras que el modelo usa {fundamental_lambda}. Posible baja/noticia no contemplada."
+                f"mientras que tu modelo usa {fundamental_lambda}. Posible baja/noticia relevante."
             )
             is_valid = False
 
@@ -247,7 +244,6 @@ class QuantAuditor:
             )
             is_valid = False
 
-        # Asignación Kelly Fraccionado
         kelly_stake = 0.0
         if is_valid and ev_ah > 0.02:
             b = ah_home_odds - 1.0
@@ -280,78 +276,67 @@ class QuantAuditor:
 # ==============================================================================
 # 6. DASHBOARD INTERACTIVO STREAMLIT
 # ==============================================================================
-
 st.title("⚡ QuantOdds Pro 360")
-st.caption("Sistema Institucional de Deconvolución Multimercado, Ingeniería Inversa y Detección de Value Traps")
+st.caption("Auto-Feeder en Tiempo Real, Ingeniería Inversa & Motor Estocástico Multimercado")
 st.divider()
 
-# SIDEBAR: CONTROLES
-st.sidebar.header("⚙️ Presets y Configuración")
+st.sidebar.header("📡 1. Auto-Carga de Partido")
+api_key = OddsAPIService.get_api_key()
 
-preset = st.sidebar.selectbox(
-    "Cargar Escenario de Estudio:",
-    [
-        "Manual / Personalizado",
-        "Arsenal vs Brighton (Oportunidad +EV Real)",
-        "Atlético de Madrid vs Getafe (Trampa de Liquidez)",
-        "Chelsea vs West Ham (Flujo Sharp en Contra)"
-    ]
-)
+auto_odds_1, auto_odds_x, auto_odds_2 = 1.80, 3.75, 4.50
+auto_over_odds = 1.85
 
-if preset == "Arsenal vs Brighton (Oportunidad +EV Real)":
-    def_f_lh, def_f_ma = 2.10, 0.85
-    def_o1, def_ox, def_o2 = 1.85, 3.80, 4.50
-    def_ah_line, def_ahh = -0.75, 1.91
-    def_ou, def_over, def_btts, def_pin = 2.75, 1.85, 1.75, 1.90
-elif preset == "Atlético de Madrid vs Getafe (Trampa de Liquidez)":
-    def_f_lh, def_f_ma = 1.65, 0.70
-    def_o1, def_ox, def_o2 = 1.40, 4.50, 8.50
-    def_ah_line, def_ahh = -1.25, 1.85
-    def_ou, def_over, def_btts, def_pin = 2.00, 2.10, 2.20, 1.85
-elif preset == "Chelsea vs West Ham (Flujo Sharp en Contra)":
-    def_f_lh, def_f_ma = 1.80, 1.10
-    def_o1, def_ox, def_o2 = 2.00, 3.50, 3.80
-    def_ah_line, def_ahh = -0.50, 2.08
-    def_ou, def_over, def_btts, def_pin = 2.50, 1.90, 1.80, 1.91
-else:
-    def_f_lh, def_f_ma = 1.75, 0.95
-    def_o1, def_ox, def_o2 = 1.80, 3.75, 4.50
-    def_ah_line, def_ahh = -0.75, 1.95
-    def_ou, def_over, def_btts, def_pin = 2.50, 1.85, 1.80, 1.93
+if api_key:
+    selected_league_label = st.sidebar.selectbox("Selecciona Liga / Competición:", list(OddsAPIService.LEAGUES.keys()))
+    league_key = OddsAPIService.LEAGUES[selected_league_label]
+    
+    if st.sidebar.button("🔍 Buscar Partidos En Vivo"):
+        with st.spinner("Conectando con casas de apuestas..."):
+            matches = OddsAPIService.fetch_upcoming_matches(league_key, api_key)
+            st.session_state["fetched_matches"] = matches
 
-st.sidebar.subheader("1. xG Fundamental del Modelo")
-col_s1, col_s2 = st.sidebar.columns(2)
-f_lambda = col_s1.number_input("xG Local (λ)", value=def_f_lh, step=0.05)
-f_mu = col_s2.number_input("xG Visitante (μ)", value=def_f_ma, step=0.05)
+    if "fetched_matches" in st.session_state and st.session_state["fetched_matches"]:
+        matches = st.session_state["fetched_matches"]
+        match_options = [f"{m['home_team']} vs {m['away_team']}" for m in matches]
+        selected_match_idx = st.sidebar.selectbox("Selecciona Partido:", range(len(match_options)), format_func=lambda i: match_options[i])
+        
+        match_data = matches[selected_match_idx]
+        for bookmaker in match_data.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market["key"] == "h2h":
+                    for outcome in market["outcomes"]:
+                        if outcome["name"] == match_data["home_team"]: auto_odds_1 = outcome["price"]
+                        elif outcome["name"] == match_data["away_team"]: auto_odds_2 = outcome["price"]
+                        elif outcome["name"] == "Draw": auto_odds_x = outcome["price"]
+        st.sidebar.success("✅ Cuotas autocargadas correctamente.")
 
-st.sidebar.subheader("2. Cotizaciones de Mercado")
-c1, c2, c3 = st.sidebar.columns(3)
-odds_1 = c1.number_input("Cuota 1", value=def_o1, step=0.01)
-odds_x = c2.number_input("Cuota X", value=def_ox, step=0.01)
-odds_2 = c3.number_input("Cuota 2", value=def_o2, step=0.01)
+st.sidebar.divider()
+st.sidebar.subheader("2. Parametrización xG y Cuotas")
 
-st.sidebar.subheader("3. Mercado Ancla (Hándicap Asiático)")
-c_ah1, c_ah2 = st.sidebar.columns(2)
-ah_line = c_ah1.number_input("Línea AH", value=def_ah_line, step=0.25)
-ah_home_odds = c_ah2.number_input("Cuota AH Local", value=def_ahh, step=0.01)
+f_lambda = st.sidebar.number_input("xG Local (λ)", value=1.75, step=0.05)
+f_mu = st.sidebar.number_input("xG Visitante (μ)", value=0.95, step=0.05)
 
-st.sidebar.subheader("4. Totales, BTTS & Sharp")
-c_t1, c_t2 = st.sidebar.columns(2)
-ou_line = c_t1.number_input("Línea O/U", value=def_ou, step=0.25)
-over_odds = c_t2.number_input("Cuota Over", value=def_over, step=0.01)
-btts_yes = st.sidebar.number_input("Cuota BTTS-Sí", value=def_btts, step=0.01)
-pin_ah = st.sidebar.number_input("Pinnacle AH Local", value=def_pin, step=0.01)
+odds_1 = st.sidebar.number_input("Cuota Local (1)", value=float(auto_odds_1), step=0.01)
+odds_x = st.sidebar.number_input("Cuota Empate (X)", value=float(auto_odds_x), step=0.01)
+odds_2 = st.sidebar.number_input("Cuota Visitante (2)", value=float(auto_odds_2), step=0.01)
 
-# EJECUCIÓN
+st.sidebar.subheader("3. Mercado Ancla (AH, Totales & Sharp)")
+ah_line = st.sidebar.number_input("Línea Hándicap Asiático", value=-0.75, step=0.25)
+ah_home_odds = st.sidebar.number_input("Cuota AH Local", value=1.95, step=0.01)
+ou_line = st.sidebar.number_input("Línea Totales (O/U)", value=2.50, step=0.25)
+over_odds = st.sidebar.number_input("Cuota Over", value=float(auto_over_odds), step=0.01)
+pin_ah = st.sidebar.number_input("Pinnacle AH Local (Ref)", value=1.91, step=0.01)
+
+# EJECUCIÓN DE LA AUDITORÍA
 matrix, audit = QuantAuditor.audit(
     f_lambda, f_mu,
     odds_1, odds_x, odds_2,
     ah_line, ah_home_odds,
     ou_line, over_odds,
-    btts_yes, pin_ah
+    pin_ah
 )
 
-# DISPLAY DE RESULTADOS
+# VISTA PRINCIPAL DE RESULTADOS
 st.subheader(f"Dictamen: {audit.status_title}")
 
 if audit.warnings:
@@ -404,9 +389,8 @@ with tab_reverse:
 with tab_docs:
     st.markdown("""
     #### Fundamentos Cuantitativos del Sistema
-    1. **Dixon-Coles:** Modifica la distribución Poisson estándar ajustando la dependencia $\\tau$ para marcadores $0$-$0$, $1$-$0$, $0$-$1$ y $1$-$1$.
-    2. **Desmarcado de Shin:** Modela la presencia de apostadores informados ($z$) para extraer las probabilidades reales $p_i$ sin el sesgo proporcional del overround.
-    3. **Ingeniería Inversa SciPy:** Encuentra los parámetros $(\\lambda, \\mu)$ de la casa mediante optimización no lineal `L-BFGS-B`.
-    4. **Filtro Anti-Trampas:** Bloquea operaciones cuando el $+EV$ del mercado $1\\text{X}2$ no está respaldado por el mercado profundo de Hándicap Asiático.
+    1. **Dixon-Coles:** Ajusta la distribución Poisson con el parámetro $\\tau$ para corregir marcadores de baja anotación ($0$-$0$, $1$-$0$, $0$-$1$, $1$-$1$).
+    2. **Desmarcado de Shin:** Modela la presencia de apostadores informados ($z$) para calcular probabilidades puras sin el sesgo proporcional del overround.
+    3. **Ingeniería Inversa SciPy:** Despeja los goles esperados $(\\lambda, \\mu)$ implícitos mediante el algoritmo de optimización no lineal `L-BFGS-B`.
+    4. **Filtro Anti-Trampas:** Bloquea posturas cuando el $+EV$ del $1\\text{X}2$ no coincide con el mercado profundo de Hándicap Asiático o cuando hay divergencias de flujo Sharp.
     """)
-
