@@ -18,10 +18,10 @@ except ImportError:
 # CONFIGURACIÓN Y ESTILOS DE TERMINAL INSTITUCIONAL
 # ==============================================================================
 st.set_page_config(
-    page_title="QuantOdds Terminal Pro",
+    page_title="QuantOdds Terminal Pro + Odds API",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 st.markdown("""
@@ -195,7 +195,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTORES MATEMÁTICOS Y MATRIZ DE CONCILIACIÓN
+# INTEGRACIÓN API (THE ODDS API)
+# ==============================================================================
+SPORTS_DICT = {
+    "Premier League (Inglaterra)": "soccer_epl",
+    "La Liga (España)": "soccer_spain_la_liga",
+    "Serie A (Italia)": "soccer_italy_serie_a",
+    "Bundesliga (Alemania)": "soccer_germany_bundesliga",
+    "Ligue 1 (Francia)": "soccer_france_ligue_one",
+    "UEFA Champions League": "soccer_uefa_champs_league",
+    "Copa Libertadores": "soccer_conmebol_copa_libertadores",
+    "MLS (EE.UU.)": "soccer_usa_mls",
+    "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
+    "Brasileirão Serie A": "soccer_brazil_campeonato"
+}
+
+@st.cache_data(ttl=300)
+def fetch_odds_api(api_key: str, sport_key: str, region: str = "eu") -> Tuple[Optional[List[Dict]], str]:
+    if not api_key:
+        return None, "Falta API Key."
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={api_key}&regions={region}&markets=h2h,spreads,totals&oddsFormat=decimal"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            remaining = res.headers.get("x-requests-remaining", "N/A")
+            return data, f"Conexión exitosa. Consultas restantes: {remaining}"
+        elif res.status_code == 401:
+            return None, "API Key inválida o no autorizada."
+        else:
+            return None, f"Error API HTTP {res.status_code}"
+    except Exception as e:
+        return None, f"Error de red: {str(e)}"
+
+# ==============================================================================
+# MOTORES MATEMÁTICOS Y CONCILIACIÓN
 # ==============================================================================
 class DixonColesEngine:
     @staticmethod
@@ -270,9 +304,6 @@ class TradeOrder:
     warnings: List[str]
     narrative_reason: str
 
-# ==============================================================================
-# AUDITORÍA COMPLETA Y FUSIÓN DE CONSENSO
-# ==============================================================================
 def analyze_match_complete(
     home_team: str, away_team: str,
     f_lh: float, f_mu: float,
@@ -291,19 +322,14 @@ def analyze_match_complete(
     sp1, spx, sp2, z = ShinEngine.deoverround(o1, ox, o2)
     imp_lh, imp_mu = ReverseEngine.extract_xg(sp1, spx, sp2)
 
-    # Probabilidades de Consenso (60% Mercado Sharp + 40% Modelo Propio)
+    # Probabilidades de Consenso (60% Mercado Sharp + 40% Modelo)
     c_p1 = (sp1 * 0.6) + (m_p1 * 0.4)
     c_px = (spx * 0.6) + (m_px * 0.4)
     c_p2 = (sp2 * 0.6) + (m_p2 * 0.4)
 
-    # 1. GENERACIÓN DEL PRONÓSTICO DIRECCIONAL
-    # Determinación de Favorito y Underdog
-    if o1 < o2:
-        fav_team, und_team = home_team, away_team
-    else:
-        fav_team, und_team = away_team, home_team
+    # 1. PRONÓSTICO DIRECCIONAL
+    fav_team, und_team = (home_team, away_team) if o1 < o2 else (away_team, home_team)
 
-    # Ganador Probable según Consenso
     if c_p1 > c_p2 and c_p1 > c_px:
         exp_winner = f"Victoria {home_team}"
         win_conf = c_p1
@@ -314,8 +340,6 @@ def analyze_match_complete(
         exp_winner = "Empate Técnico"
         win_conf = c_px
 
-    # Tendencia de Goles
-    exp_total_goals = f_lh + f_mu
     p_over_consensus = sum(m[x, y] for x in range(m.shape[0]) for y in range(m.shape[1]) if (x + y) > ou_line)
     if p_over_consensus > 0.52:
         goals_trend = f"Over {ou_line} Goles"
@@ -324,13 +348,11 @@ def analyze_match_complete(
         goals_trend = f"Under {ou_line} Goles"
         goals_conf = 1.0 - p_over_consensus
 
-    # Pronóstico de Hándicap
     if c_p1 >= 0.50:
         handicap_forecast = f"{home_team} cubre {ah_line}"
     else:
         handicap_forecast = f"{away_team} cubre +{abs(ah_line)}"
 
-    # Marcador Exacto Dominante
     max_idx = np.unravel_index(np.argmax(m), m.shape)
     best_score = f"{max_idx[0]} - {max_idx[1]}"
     best_score_prob = m[max_idx[0], max_idx[1]]
@@ -347,7 +369,7 @@ def analyze_match_complete(
         score_probability=round(best_score_prob * 100, 1)
     )
 
-    # 2. CÁLCULO DE VALOR (+EV) Y RIESGO
+    # 2. CÁLCULO FINANCIERO Y AUDITORÍA
     ev_1x2_home = (m_p1 * o1) - 1.0
     p_ah_home = m_p1 * 0.88 + m_px * 0.5
     ev_ah = (p_ah_home * ah_home_o) - 1.0
@@ -367,15 +389,15 @@ def analyze_match_complete(
 
     if best_ev < min_ev_threshold:
         is_approved = False
-        warnings.append(f"Mercado Eficiente / Sin Ventaja: Ninguna cuota supera el umbral del +{min_ev_threshold*100:.1f}% EV. Prevalece la estimación de la casa.")
+        warnings.append(f"Sin ventaja (+EV < {min_ev_threshold*100:.1f}%). Prevalece la eficiencia del mercado.")
 
     if ev_1x2_home > 0.035 and ev_ah < -0.01:
         is_approved = False
-        warnings.append("🚨 Trampa de Liquidez: Discrepancia entre el 1X2 inflado y el Hándicap Asiático real.")
+        warnings.append("🚨 Trampa de Liquidez: Discrepancia sospechosa entre 1X2 e Hándicap Asiático.")
 
     if abs(imp_lh - f_lh) > 0.55:
         is_approved = False
-        warnings.append(f"🚨 Divergencia xG: La casa proyecta {imp_lh} goles locales vs tus {f_lh}. Posibles rotaciones de plantilla.")
+        warnings.append(f"🚨 Divergencia xG: La casa proyecta {imp_lh} goles locales vs tus {f_lh}.")
 
     kelly_pct = 0.0
     if is_approved and best_ev > 0:
@@ -386,10 +408,10 @@ def analyze_match_complete(
 
     if is_approved:
         action_text = "EJECUTAR ORDEN (+EV VALIDADO)"
-        narrative = f"Se confirma una ineficiencia ejecutable en **{best_market_name}** con un **EV de {best_ev*100:+.2f}%**, alineado con el pronóstico direccional."
+        narrative = f"Ventaja detectada en **{best_market_name}** con un **EV de {best_ev*100:+.2f}%**, alineado con el pronóstico direccional."
     else:
         action_text = "ABSTENERSE / MERCADO EFICIENTE"
-        narrative = f"Aunque el pronóstico señala como probable a **{exp_winner}**, la cuota ofrecida ({best_odds}) ya refleja adecuadamente el riesgo. No existe prima de valor."
+        narrative = f"Pronóstico favorece a **{exp_winner}**, pero el precio ({best_odds}) ya descuenta la probabilidad real."
 
     order = TradeOrder(
         action=action_text,
@@ -418,30 +440,85 @@ def analyze_match_complete(
     return m, metrics, forecast, order
 
 # ==============================================================================
-# INTERFAZ DE USUARIO (DASHBOARD INSTITUCIONAL)
+# INTERFAZ Y SIDEBAR DINÁMICO CON ODDS-API
 # ==============================================================================
-st.sidebar.title("⚙️ Parámetros Cuantitativos")
+st.sidebar.title("⚡ QuantOdds Terminal")
+st.sidebar.markdown("---")
 
-home_team = st.sidebar.text_input("Equipo Local", value="Macará")
-away_team = st.sidebar.text_input("Equipo Visitante", value="Santos")
-match_name = f"{home_team} vs {away_team}"
+# 1. MÓDULO API KEY
+st.sidebar.subheader("🔑 Conexión The-Odds-API")
+api_key = st.sidebar.text_input("Ingresa tu Odds-API Key", type="password", help="Obtén una gratis en https://the-odds-api.com")
 
+selected_league_label = st.sidebar.selectbox("Seleccionar Liga", list(SPORTS_DICT.keys()))
+sport_key = SPORTS_DICT[selected_league_label]
+
+api_matches = []
+def_home, def_away = "Macará", "Santos"
+def_o1, def_ox, def_o2 = 1.80, 3.75, 4.50
+def_ah_line, def_ah_o = -0.75, 1.95
+def_ou_line, def_over_o = 2.50, 1.85
+
+if api_key:
+    raw_data, status_msg = fetch_odds_api(api_key, sport_key)
+    st.sidebar.caption(f"Status: {status_msg}")
+    
+    if raw_data:
+        api_matches = raw_data
+        match_options = [f"{m['home_team']} vs {m['away_team']}" for m in api_matches]
+        if match_options:
+            selected_match_str = st.sidebar.selectbox("🏟️ Partidos Disponibles", match_options)
+            match_idx = match_options.index(selected_match_str)
+            match_data = api_matches[match_idx]
+            
+            def_home = match_data['home_team']
+            def_away = match_data['away_team']
+            
+            # Autocompletado de Cuotas desde la API (Tomando la primera casa o Pinnacle si existe)
+            if match_data.get('bookmakers'):
+                bm = match_data['bookmakers'][0] # Casa principal
+                for mkt in bm.get('markets', []):
+                    if mkt['key'] == 'h2h':
+                        for o in mkt['outcomes']:
+                            if o['name'] == def_home: def_o1 = float(o['price'])
+                            elif o['name'] == def_away: def_o2 = float(o['price'])
+                            elif o['name'] == 'Draw': def_ox = float(o['price'])
+                    elif mkt['key'] == 'spreads':
+                        for o in mkt['outcomes']:
+                            if o['name'] == def_home:
+                                def_ah_line = float(o.get('point', -0.5))
+                                def_ah_o = float(o['price'])
+                    elif mkt['key'] == 'totals':
+                        for o in mkt['outcomes']:
+                            if o['name'] == 'Over':
+                                def_ou_line = float(o.get('point', 2.5))
+                                def_over_o = float(o['price'])
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Configuración del Partido")
+
+home_team = st.sidebar.text_input("Equipo Local", value=def_home)
+away_team = st.sidebar.text_input("Equipo Visitante", value=def_away)
 bankroll = st.sidebar.number_input("Capital Total ($)", value=10000.0, step=500.0)
-st.sidebar.divider()
+
+st.sidebar.markdown("**Métricas xG (Modelo Propio)**")
 f_lh = st.sidebar.number_input("xG Local (λ)", value=1.75, step=0.05)
 f_mu = st.sidebar.number_input("xG Visitante (μ)", value=0.95, step=0.05)
 
-o1 = st.sidebar.number_input("Cuota Local (1)", value=1.80, step=0.01)
-ox = st.sidebar.number_input("Cuota Empate (X)", value=3.75, step=0.01)
-o2 = st.sidebar.number_input("Cuota Visitante (2)", value=4.50, step=0.01)
+st.sidebar.markdown("**Cuotas Mercado (1X2)**")
+o1 = st.sidebar.number_input("Cuota Local (1)", value=def_o1, step=0.01)
+ox = st.sidebar.number_input("Cuota Empate (X)", value=def_ox, step=0.01)
+o2 = st.sidebar.number_input("Cuota Visitante (2)", value=def_o2, step=0.01)
 
-ah_line = st.sidebar.number_input("Línea AH", value=-0.75, step=0.25)
-ah_o = st.sidebar.number_input("Cuota AH Local", value=1.95, step=0.01)
-ou_line = st.sidebar.number_input("Línea Totales", value=2.50, step=0.25)
-over_o = st.sidebar.number_input("Cuota Over", value=1.85, step=0.01)
+st.sidebar.markdown("**Líneas de Derivados**")
+ah_line = st.sidebar.number_input("Línea AH", value=def_ah_line, step=0.25)
+ah_o = st.sidebar.number_input("Cuota AH Local", value=def_ah_o, step=0.01)
+ou_line = st.sidebar.number_input("Línea Totales", value=def_ou_line, step=0.25)
+over_o = st.sidebar.number_input("Cuota Over", value=def_over_o, step=0.01)
 pin_ah = st.sidebar.number_input("Pinnacle AH Ref", value=1.91, step=0.01)
 
-# EJECUTAR ANÁLISIS COMPLETO
+# ==============================================================================
+# EJECUCIÓN DEL CÁLCULO Y RENDERIZADO
+# ==============================================================================
 matrix, metrics, forecast, order = analyze_match_complete(
     home_team, away_team, f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah, bankroll
 )
@@ -449,12 +526,12 @@ matrix, metrics, forecast, order = analyze_match_complete(
 # 1. HEADER
 st.markdown(f"""
 <div class="match-header">
-    <div class="match-title">🏟️ {match_name}</div>
-    <div class="match-subtitle">CÁLCULO DE CONSENSO Y TERMINAL DE EJECUCIÓN</div>
+    <div class="match-title">🏟️ {home_team} vs {away_team}</div>
+    <div class="match-subtitle">INTEGRACIÓN API + ANÁLISIS DIRECCIONAL DE CONSENSO</div>
 </div>
 """, unsafe_allow_html=True)
 
-# 2. PANEL DE PRONÓSTICO DIRECCIONAL (LO QUE FALTABA)
+# 2. PANEL DE PRONÓSTICO DIRECCIONAL
 st.markdown(f"""
 <div class="forecast-container">
     <div class="forecast-title">🔮 PRONÓSTICO DIRECCIONAL DE MERCADO (CONSENSO MODELO + CASA)</div>
@@ -483,7 +560,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 3. GRID DE KPIs FINANCIEROS
+# 3. METRICAS CLAVE
 def get_cls(val):
     if val > 0: return "val-positive"
     if val < 0: return "val-negative"
@@ -514,7 +591,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 4. TICKET DE OPERACIÓN FINANCIERA
+# 4. TICKET FINANCIERO DE EJECUCIÓN
 ticket_cls = "ticket-trade" if order.is_approved else "ticket-no-trade"
 badge_cls = "badge-trade" if order.is_approved else "badge-no-trade"
 warnings_html = "".join([f'<div class="warning-chip">{w}</div>' for w in order.warnings])
@@ -549,11 +626,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 5. VISUALIZACIÓN GRÁFICA
+# 5. GRÁFICOS INTERACTIVOS
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
-    st.markdown("##### 📊 Comparativa Directa de Probabilidades")
+    st.markdown("##### 📊 Comparativa de Probabilidades (Modelo vs Shin)")
     if HAS_PLOTLY:
         categories = [f"{home_team} (1)", "Empate (X)", f"{away_team} (2)"]
         fig_bar = go.Figure(data=[
