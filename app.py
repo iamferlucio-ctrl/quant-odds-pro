@@ -15,171 +15,188 @@ except ImportError:
     HAS_PLOTLY = False
 
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA Y CSS PREMIUM (DARK FINTECH THEME)
+# CONFIGURACIÓN Y ESTILOS DE TERMINAL INSTITUCIONAL
 # ==============================================================================
 st.set_page_config(
-    page_title="QuantOdds Pro",
+    page_title="QuantOdds Terminal Pro",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Estilos CSS personalizados para corregir Streamlit en móviles
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
     
     html, body, [class*="css"] {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Inter', -apple-system, sans-serif;
     }
     
     .stApp {
-        background-color: #090D16;
+        background-color: #0B0E14;
         color: #E2E8F0;
     }
     
-    /* Header del Partido */
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    
+    /* Header Principal */
     .match-header {
-        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-        border: 1px solid #334155;
-        border-radius: 12px;
+        background: linear-gradient(180deg, #151C28 0%, #0D121D 100%);
+        border: 1px solid #1E293B;
+        border-radius: 10px;
         padding: 16px;
-        margin-bottom: 20px;
+        margin-bottom: 16px;
         text-align: center;
     }
     .match-title {
-        font-size: 1.25rem;
+        font-size: 1.3rem;
         font-weight: 700;
         color: #F8FAFC;
-        margin: 0;
     }
     .match-subtitle {
-        font-size: 0.8rem;
-        color: #94A3B8;
-        margin-top: 4px;
+        font-size: 0.75rem;
+        color: #64748B;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 1.5px;
     }
 
-    /* Grid de Métricas / KPIs */
+    /* Panel de Pronóstico Direccional */
+    .forecast-container {
+        background: #111823;
+        border: 1px solid #1E293B;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    .forecast-title {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #38BDF8;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #1E293B;
+        padding-bottom: 6px;
+    }
+    .forecast-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    @media (min-width: 768px) {
+        .forecast-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .forecast-card {
+        background: #0B0E14;
+        border: 1px solid #1E293B;
+        border-radius: 8px;
+        padding: 10px;
+    }
+    .forecast-label {
+        font-size: 0.68rem;
+        color: #64748B;
+        text-transform: uppercase;
+    }
+    .forecast-val {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        margin-top: 2px;
+    }
+    .forecast-sub {
+        font-size: 0.72rem;
+        color: #10B981;
+    }
+
+    /* Grid de KPIs */
     .kpi-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-        margin-bottom: 20px;
+        gap: 8px;
+        margin-bottom: 16px;
     }
     @media (min-width: 768px) {
         .kpi-grid { grid-template-columns: repeat(5, 1fr); }
     }
-    
     .kpi-card {
-        background: #111827;
-        border: 1px solid #1F2937;
-        border-radius: 10px;
-        padding: 12px;
+        background: #111722;
+        border: 1px solid #1E293B;
+        border-radius: 8px;
+        padding: 10px;
         text-align: center;
     }
     .kpi-label {
-        font-size: 0.72rem;
-        color: #9CA3AF;
+        font-size: 0.68rem;
+        color: #64748B;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
+        font-weight: 600;
     }
     .kpi-value {
-        font-size: 1.2rem;
+        font-size: 1.15rem;
         font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
     }
     .val-positive { color: #10B981; }
     .val-negative { color: #EF4444; }
     .val-neutral { color: #F59E0B; }
-    .val-white { color: #F9FAFB; }
+    .val-white { color: #F8FAFC; }
 
-    /* Tarjetas de Estado y Dictamen */
-    .status-card {
-        border-radius: 12px;
+    /* Order Ticket */
+    .ticket-card {
+        border-radius: 10px;
         padding: 16px;
         margin-bottom: 20px;
+        border: 1px solid #1E293B;
     }
-    .status-denied {
-        background: rgba(239, 68, 68, 0.08);
-        border: 1px solid rgba(239, 68, 68, 0.3);
+    .ticket-no-trade {
+        background: rgba(239, 68, 68, 0.05);
+        border-color: rgba(239, 68, 68, 0.3);
     }
-    .status-approved {
-        background: rgba(16, 185, 129, 0.08);
-        border: 1px solid rgba(16, 185, 129, 0.3);
+    .ticket-trade {
+        background: rgba(16, 185, 129, 0.05);
+        border-color: rgba(16, 185, 129, 0.3);
     }
-    .status-badge {
+    .ticket-badge {
         display: inline-block;
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 0.75rem;
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.7rem;
         font-weight: 700;
-        text-transform: uppercase;
-        margin-bottom: 8px;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 1px;
     }
-    .badge-denied { background: #EF4444; color: #FFFFFF; }
-    .badge-approved { background: #10B981; color: #FFFFFF; }
-    
-    .warning-box {
-        background: #1F1924;
+    .badge-no-trade { background: #EF4444; color: #FFF; }
+    .badge-trade { background: #10B981; color: #FFF; }
+
+    .exec-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    @media (min-width: 768px) {
+        .exec-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .exec-item-label { font-size: 0.7rem; color: #94A3B8; }
+    .exec-item-val { font-size: 0.95rem; font-weight: 700; color: #F8FAFC; font-family: 'JetBrains Mono', monospace; }
+
+    .warning-chip {
+        background: rgba(245, 158, 11, 0.1);
         border-left: 3px solid #F59E0B;
-        padding: 10px 14px;
-        border-radius: 0 8px 8px 0;
-        font-size: 0.82rem;
+        padding: 8px 12px;
+        font-size: 0.8rem;
         color: #FCD34D;
-        margin-top: 8px;
-    }
-    
-    /* Contenedores y Pestañas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 6px;
-        background-color: #111827;
-        color: #9CA3AF;
-        font-size: 0.85rem;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #3B82F6 !important;
-        color: #FFFFFF !important;
+        margin-top: 10px;
+        border-radius: 0 4px 4px 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# LOGICA DE MOTORES CUANTITATIVOS
+# MOTORES MATEMÁTICOS Y MATRIZ DE CONCILIACIÓN
 # ==============================================================================
-class OddsAPIService:
-    LEAGUES = {
-        "Copa Libertadores": "soccer_conmebol_copa_libertadores",
-        "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
-        "Brasileirão Série A": "soccer_brazil_campeonato",
-        "Liga Profesional (ARG)": "soccer_argentina_primera_division",
-        "UEFA Champions League": "soccer_uefa_champs_league",
-        "Premier League": "soccer_epl",
-        "La Liga": "soccer_spain_la_liga",
-    }
-
-    @classmethod
-    def get_api_key(cls) -> Optional[str]:
-        if "ODDS_API_KEY" in st.secrets:
-            return st.secrets["ODDS_API_KEY"]
-        return st.sidebar.text_input("🔑 API Key:", type="password")
-
-    @classmethod
-    def fetch_upcoming_matches(cls, sport_key: str, api_key: str) -> List[Dict]:
-        url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-        params = {"apiKey": api_key, "regions": "eu,us", "markets": "h2h,spreads,totals", "oddsFormat": "decimal"}
-        try:
-            res = requests.get(url, params=params, timeout=10)
-            return res.json() if res.status_code == 200 else []
-        except Exception:
-            return []
-
 class DixonColesEngine:
     @staticmethod
     def tau(x: int, y: int, lh: float, ma: float, rho: float) -> float:
@@ -228,109 +245,245 @@ class ReverseEngine:
         return round(float(res.x[0]), 2), round(float(res.x[1]), 2)
 
 @dataclass
-class AuditData:
-    is_valid: bool
-    status_title: str
-    ev_1x2: float
-    ev_ah: float
-    ev_ou: float
-    shin_z: float
-    imp_lh: float
-    imp_mu: float
-    m_p1: float
-    m_px: float
-    m_p2: float
-    s_p1: float
-    s_px: float
-    s_p2: float
-    warnings: List[str]
+class DirectionalForecast:
+    favorite_team: str
+    underdog_team: str
+    expected_winner: str
+    winner_confidence: float
+    expected_goals_trend: str
+    goals_confidence: float
+    handicap_forecast: str
+    most_probable_score: str
+    score_probability: float
 
-def audit_match(f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah) -> Tuple[np.ndarray, AuditData]:
+@dataclass
+class TradeOrder:
+    action: str
+    is_approved: bool
+    best_market: str
+    target_selection: str
+    captured_odds: float
+    fair_odds: float
+    ev_pct: float
+    kelly_stake_pct: float
+    max_risk_cap_pct: float
+    warnings: List[str]
+    narrative_reason: str
+
+# ==============================================================================
+# AUDITORÍA COMPLETA Y FUSIÓN DE CONSENSO
+# ==============================================================================
+def analyze_match_complete(
+    home_team: str, away_team: str,
+    f_lh: float, f_mu: float,
+    o1: float, ox: float, o2: float,
+    ah_line: float, ah_home_o: float,
+    ou_line: float, over_o: float,
+    pin_ah_o: float, bankroll: float = 10000.0,
+    min_ev_threshold: float = 0.025
+) -> Tuple[np.ndarray, Dict, DirectionalForecast, TradeOrder]:
+
     m = DixonColesEngine.generate_matrix(f_lh, f_mu)
-    p1, px, p2 = float(np.sum(np.tril(m, -1))), float(np.sum(np.diag(m))), float(np.sum(np.triu(m, 1)))
-    
-    # Totals y AH simplificados
-    m_over = sum(m[x, y] for x in range(m.shape[0]) for y in range(m.shape[1]) if (x + y) > ou_line)
-    m_ah = p1 * 0.85 # Aproximación estocástica de cobertura
-    
+    m_p1 = float(np.sum(np.tril(m, -1)))
+    m_px = float(np.sum(np.diag(m)))
+    m_p2 = float(np.sum(np.triu(m, 1)))
+
     sp1, spx, sp2, z = ShinEngine.deoverround(o1, ox, o2)
     imp_lh, imp_mu = ReverseEngine.extract_xg(sp1, spx, sp2)
-    
-    ev1 = (p1 * o1) - 1.0
-    ev_ah = (m_ah * ah_o) - 1.0
-    ev_ou = (m_over * over_o) - 1.0
-    
-    warnings = []
-    is_valid = True
-    
-    if ev1 > 0.035 and ev_ah < -0.015:
-        warnings.append(f"Trampa de Liquidez: 1X2 inflado (+{ev1*100:.1f}%), pero Mercado Ancla AH ({ah_line}) en negativo ({ev_ah*100:.1f}%).")
-        is_valid = False
 
-    if abs(imp_lh - f_lh) > 0.5:
-        warnings.append(f"Desviación xG: La casa proyecta Local en {imp_lh}, tu modelo usa {f_lh}. Revisa alineaciones.")
-        is_valid = False
+    # Probabilidades de Consenso (60% Mercado Sharp + 40% Modelo Propio)
+    c_p1 = (sp1 * 0.6) + (m_p1 * 0.4)
+    c_px = (spx * 0.6) + (m_px * 0.4)
+    c_p2 = (sp2 * 0.6) + (m_p2 * 0.4)
 
-    status = "Orden Aprobada (+EV)" if is_valid else "Riesgo Estructural / Trampa Detectada"
-    
-    return m, AuditData(
-        is_valid=is_valid, status_title=status,
-        ev_1x2=round(ev1*100, 2), ev_ah=round(ev_ah*100, 2), ev_ou=round(ev_ou*100, 2),
-        shin_z=round(z, 4), imp_lh=imp_lh, imp_mu=imp_mu,
-        m_p1=p1, m_px=px, m_p2=p2, s_p1=sp1, s_px=spx, s_p2=sp2,
-        warnings=warnings
+    # 1. GENERACIÓN DEL PRONÓSTICO DIRECCIONAL
+    # Determinación de Favorito y Underdog
+    if o1 < o2:
+        fav_team, und_team = home_team, away_team
+    else:
+        fav_team, und_team = away_team, home_team
+
+    # Ganador Probable según Consenso
+    if c_p1 > c_p2 and c_p1 > c_px:
+        exp_winner = f"Victoria {home_team}"
+        win_conf = c_p1
+    elif c_p2 > c_p1 and c_p2 > c_px:
+        exp_winner = f"Victoria {away_team}"
+        win_conf = c_p2
+    else:
+        exp_winner = "Empate Técnico"
+        win_conf = c_px
+
+    # Tendencia de Goles
+    exp_total_goals = f_lh + f_mu
+    p_over_consensus = sum(m[x, y] for x in range(m.shape[0]) for y in range(m.shape[1]) if (x + y) > ou_line)
+    if p_over_consensus > 0.52:
+        goals_trend = f"Over {ou_line} Goles"
+        goals_conf = p_over_consensus
+    else:
+        goals_trend = f"Under {ou_line} Goles"
+        goals_conf = 1.0 - p_over_consensus
+
+    # Pronóstico de Hándicap
+    if c_p1 >= 0.50:
+        handicap_forecast = f"{home_team} cubre {ah_line}"
+    else:
+        handicap_forecast = f"{away_team} cubre +{abs(ah_line)}"
+
+    # Marcador Exacto Dominante
+    max_idx = np.unravel_index(np.argmax(m), m.shape)
+    best_score = f"{max_idx[0]} - {max_idx[1]}"
+    best_score_prob = m[max_idx[0], max_idx[1]]
+
+    forecast = DirectionalForecast(
+        favorite_team=fav_team,
+        underdog_team=und_team,
+        expected_winner=exp_winner,
+        winner_confidence=round(win_conf * 100, 1),
+        expected_goals_trend=goals_trend,
+        goals_confidence=round(goals_conf * 100, 1),
+        handicap_forecast=handicap_forecast,
+        most_probable_score=best_score,
+        score_probability=round(best_score_prob * 100, 1)
     )
 
+    # 2. CÁLCULO DE VALOR (+EV) Y RIESGO
+    ev_1x2_home = (m_p1 * o1) - 1.0
+    p_ah_home = m_p1 * 0.88 + m_px * 0.5
+    ev_ah = (p_ah_home * ah_home_o) - 1.0
+    ev_ou = (p_over_consensus * over_o) - 1.0
+
+    ev_dict = {
+        "1X2 Local": (ev_1x2_home, o1, m_p1, f"Local ({home_team}) @ {o1}"),
+        f"AH {ah_line} Local": (ev_ah, ah_home_o, p_ah_home, f"AH {ah_line} {home_team} @ {ah_home_o}"),
+        f"Over {ou_line} Goles": (ev_ou, over_o, p_over_consensus, f"Over {ou_line} @ {over_o}")
+    }
+
+    best_market_name = max(ev_dict, key=lambda k: ev_dict[k][0])
+    best_ev, best_odds, best_prob, best_selection = ev_dict[best_market_name]
+
+    warnings = []
+    is_approved = True
+
+    if best_ev < min_ev_threshold:
+        is_approved = False
+        warnings.append(f"Mercado Eficiente / Sin Ventaja: Ninguna cuota supera el umbral del +{min_ev_threshold*100:.1f}% EV. Prevalece la estimación de la casa.")
+
+    if ev_1x2_home > 0.035 and ev_ah < -0.01:
+        is_approved = False
+        warnings.append("🚨 Trampa de Liquidez: Discrepancia entre el 1X2 inflado y el Hándicap Asiático real.")
+
+    if abs(imp_lh - f_lh) > 0.55:
+        is_approved = False
+        warnings.append(f"🚨 Divergencia xG: La casa proyecta {imp_lh} goles locales vs tus {f_lh}. Posibles rotaciones de plantilla.")
+
+    kelly_pct = 0.0
+    if is_approved and best_ev > 0:
+        b = best_odds - 1.0
+        q = 1.0 - best_prob
+        f_k = (b * best_prob - q) / b
+        kelly_pct = max(0.0, min(0.03, float(f_k * 0.25)))
+
+    if is_approved:
+        action_text = "EJECUTAR ORDEN (+EV VALIDADO)"
+        narrative = f"Se confirma una ineficiencia ejecutable en **{best_market_name}** con un **EV de {best_ev*100:+.2f}%**, alineado con el pronóstico direccional."
+    else:
+        action_text = "ABSTENERSE / MERCADO EFICIENTE"
+        narrative = f"Aunque el pronóstico señala como probable a **{exp_winner}**, la cuota ofrecida ({best_odds}) ya refleja adecuadamente el riesgo. No existe prima de valor."
+
+    order = TradeOrder(
+        action=action_text,
+        is_approved=is_approved,
+        best_market=best_market_name,
+        target_selection=best_selection,
+        captured_odds=best_odds,
+        fair_odds=round(1.0 / max(0.001, best_prob), 2),
+        ev_pct=round(best_ev * 100, 2),
+        kelly_stake_pct=round(kelly_pct * 100, 2),
+        max_risk_cap_pct=round(kelly_pct * bankroll * 0.01, 2),
+        warnings=warnings,
+        narrative_reason=narrative
+    )
+
+    metrics = {
+        "ev_1x2": round(ev_1x2_home * 100, 2),
+        "ev_ah": round(ev_ah * 100, 2),
+        "ev_ou": round(ev_ou * 100, 2),
+        "imp_lh": imp_lh, "imp_mu": imp_mu,
+        "shin_z": round(z, 4),
+        "m_p1": m_p1, "m_px": m_px, "m_p2": m_p2,
+        "sp1": sp1, "spx": spx, "sp2": sp2
+    }
+
+    return m, metrics, forecast, order
+
 # ==============================================================================
-# CONTROLES Y SIDEBAR
+# INTERFAZ DE USUARIO (DASHBOARD INSTITUCIONAL)
 # ==============================================================================
-st.sidebar.title("⚙️ Parámetros")
-api_key = OddsAPIService.get_api_key()
+st.sidebar.title("⚙️ Parámetros Cuantitativos")
 
-auto_o1, auto_ox, auto_o2 = 1.80, 3.75, 4.50
-match_name = "Olimpia Asunción vs Vasco da Gama"
+home_team = st.sidebar.text_input("Equipo Local", value="Macará")
+away_team = st.sidebar.text_input("Equipo Visitante", value="Santos")
+match_name = f"{home_team} vs {away_team}"
 
-if api_key:
-    league_label = st.sidebar.selectbox("Competición", list(OddsAPIService.LEAGUES.keys()))
-    if st.sidebar.button("🔍 Cargar Partidos"):
-        matches = OddsAPIService.fetch_upcoming_matches(OddsAPIService.LEAGUES[league_label], api_key)
-        st.session_state["matches"] = matches
-
-    if "matches" in st.session_state and st.session_state["matches"]:
-        m_list = st.session_state["matches"]
-        idx = st.sidebar.selectbox("Partido", range(len(m_list)), format_func=lambda i: f"{m_list[i]['home_team']} vs {m_list[i]['away_team']}")
-        match_data = m_list[idx]
-        match_name = f"{match_data['home_team']} vs {match_data['away_team']}"
-
+bankroll = st.sidebar.number_input("Capital Total ($)", value=10000.0, step=500.0)
+st.sidebar.divider()
 f_lh = st.sidebar.number_input("xG Local (λ)", value=1.75, step=0.05)
 f_mu = st.sidebar.number_input("xG Visitante (μ)", value=0.95, step=0.05)
 
-o1 = st.sidebar.number_input("Cuota Local (1)", value=auto_o1, step=0.01)
-ox = st.sidebar.number_input("Cuota Empate (X)", value=auto_ox, step=0.01)
-o2 = st.sidebar.number_input("Cuota Visitante (2)", value=auto_o2, step=0.01)
+o1 = st.sidebar.number_input("Cuota Local (1)", value=1.80, step=0.01)
+ox = st.sidebar.number_input("Cuota Empate (X)", value=3.75, step=0.01)
+o2 = st.sidebar.number_input("Cuota Visitante (2)", value=4.50, step=0.01)
 
 ah_line = st.sidebar.number_input("Línea AH", value=-0.75, step=0.25)
 ah_o = st.sidebar.number_input("Cuota AH Local", value=1.95, step=0.01)
-ou_line = st.sidebar.number_input("Línea Over/Under", value=2.50, step=0.25)
+ou_line = st.sidebar.number_input("Línea Totales", value=2.50, step=0.25)
 over_o = st.sidebar.number_input("Cuota Over", value=1.85, step=0.01)
 pin_ah = st.sidebar.number_input("Pinnacle AH Ref", value=1.91, step=0.01)
 
-# CÁLCULO
-matrix, audit = audit_match(f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah)
-
-# ==============================================================================
-# INTERFAZ PRINCIPAL (RESPONSIVE DASHBOARD)
-# ==============================================================================
+# EJECUTAR ANÁLISIS COMPLETO
+matrix, metrics, forecast, order = analyze_match_complete(
+    home_team, away_team, f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah, bankroll
+)
 
 # 1. HEADER
 st.markdown(f"""
 <div class="match-header">
     <div class="match-title">🏟️ {match_name}</div>
-    <div class="match-subtitle">Terminal de Inteligencia Cuantitativa</div>
+    <div class="match-subtitle">CÁLCULO DE CONSENSO Y TERMINAL DE EJECUCIÓN</div>
 </div>
 """, unsafe_allow_html=True)
 
-# 2. GRID DE KPIs DENSOS (Estilo FinTech)
+# 2. PANEL DE PRONÓSTICO DIRECCIONAL (LO QUE FALTABA)
+st.markdown(f"""
+<div class="forecast-container">
+    <div class="forecast-title">🔮 PRONÓSTICO DIRECCIONAL DE MERCADO (CONSENSO MODELO + CASA)</div>
+    <div class="forecast-grid">
+        <div class="forecast-card">
+            <div class="forecast-label">Ganador Probable</div>
+            <div class="forecast-val">{forecast.expected_winner}</div>
+            <div class="forecast-sub">Certeza: {forecast.winner_confidence}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Marcador Exacto Dominante</div>
+            <div class="forecast-val">{forecast.most_probable_score}</div>
+            <div class="forecast-sub">Probabilidad: {forecast.score_probability}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Proyección de Goles</div>
+            <div class="forecast-val">{forecast.expected_goals_trend}</div>
+            <div class="forecast-sub">Probabilidad: {forecast.goals_confidence}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Línea de Hándicap</div>
+            <div class="forecast-val">{forecast.handicap_forecast}</div>
+            <div class="forecast-sub">Favorito: {forecast.favorite_team}</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# 3. GRID DE KPIs FINANCIEROS
 def get_cls(val):
     if val > 0: return "val-positive"
     if val < 0: return "val-negative"
@@ -340,70 +493,85 @@ st.markdown(f"""
 <div class="kpi-grid">
     <div class="kpi-card">
         <div class="kpi-label">EV Hándicap</div>
-        <div class="kpi-value {get_cls(audit.ev_ah)}">{audit.ev_ah:+.1f}%</div>
+        <div class="kpi-value {get_cls(metrics['ev_ah'])}">{metrics['ev_ah']:+.1f}%</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">EV Mercado 1X2</div>
-        <div class="kpi-value {get_cls(audit.ev_1x2)}">{audit.ev_1x2:+.1f}%</div>
+        <div class="kpi-value {get_cls(metrics['ev_1x2'])}">{metrics['ev_1x2']:+.1f}%</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">EV Over/Under</div>
-        <div class="kpi-value {get_cls(audit.ev_ou)}">{audit.ev_ou:+.1f}%</div>
+        <div class="kpi-value {get_cls(metrics['ev_ou'])}">{metrics['ev_ou']:+.1f}%</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">xG Casa Impl.</div>
-        <div class="kpi-value val-white">{audit.imp_lh} / {audit.imp_mu}</div>
+        <div class="kpi-value val-white">{metrics['imp_lh']} / {metrics['imp_mu']}</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Shin (Insider z)</div>
-        <div class="kpi-value val-neutral">{audit.shin_z:.4f}</div>
+        <div class="kpi-value val-neutral">{metrics['shin_z']:.4f}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# 3. DICTAMEN DE RIESGO
-badge_cls = "badge-approved" if audit.is_valid else "badge-denied"
-card_cls = "status-approved" if audit.is_valid else "status-denied"
-badge_text = "EJECUCIÓN PERMITIDA" if audit.is_valid else "ORDEN DENEGADA"
-
-warnings_html = "".join([f'<div class="warning-box">⚠️ {w}</div>' for w in audit.warnings])
+# 4. TICKET DE OPERACIÓN FINANCIERA
+ticket_cls = "ticket-trade" if order.is_approved else "ticket-no-trade"
+badge_cls = "badge-trade" if order.is_approved else "badge-no-trade"
+warnings_html = "".join([f'<div class="warning-chip">{w}</div>' for w in order.warnings])
 
 st.markdown(f"""
-<div class="status-card {card_cls}">
-    <span class="status-badge {badge_cls}">{badge_text}</span>
-    <h3 style="margin: 4px 0; font-size: 1.1rem; color: #F8FAFC;">{audit.status_title}</h3>
-    <p style="margin: 0; font-size: 0.82rem; color: #94A3B8;">
-        Auditoría realizada cruzando el modelo Dixon-Coles frente a la de-marginalización de Shin.
+<div class="ticket-card {ticket_cls}">
+    <div>
+        <span class="ticket-badge {badge_cls}">{order.action}</span>
+    </div>
+    <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #CBD5E1;">
+        {order.narrative_reason}
     </p>
+    <div class="exec-grid">
+        <div>
+            <div class="exec-item-label">Selección Recomendada</div>
+            <div class="exec-item-val">{order.target_selection if order.is_approved else 'Ninguna'}</div>
+        </div>
+        <div>
+            <div class="exec-item-label">Cuota Justa / Mercado</div>
+            <div class="exec-item-val">{order.fair_odds} / {order.captured_odds if order.is_approved else 'N/A'}</div>
+        </div>
+        <div>
+            <div class="exec-item-label">Esperanza (+EV)</div>
+            <div class="exec-item-val {get_cls(order.ev_pct)}">{order.ev_pct:+.2f}%</div>
+        </div>
+        <div>
+            <div class="exec-item-label">Stake Sugerido (Kelly)</div>
+            <div class="exec-item-val">{order.kelly_stake_pct}% (${order.max_risk_cap_pct})</div>
+        </div>
+    </div>
     {warnings_html}
 </div>
 """, unsafe_allow_html=True)
 
-# 4. GRÁFICOS OPTIMIZADOS PARA MÓVIL
+# 5. VISUALIZACIÓN GRÁFICA
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
-    st.markdown("##### 📊 Probabilidades: Modelo vs Casa")
+    st.markdown("##### 📊 Comparativa Directa de Probabilidades")
     if HAS_PLOTLY:
-        categories = ["Local (1)", "Empate (X)", "Visitante (2)"]
+        categories = [f"{home_team} (1)", "Empate (X)", f"{away_team} (2)"]
         fig_bar = go.Figure(data=[
-            go.Bar(name='Tu Modelo', x=categories, y=[audit.m_p1*100, audit.m_px*100, audit.m_p2*100], marker_color='#10B981'),
-            go.Bar(name='Mercado Shin', x=categories, y=[audit.s_p1*100, audit.s_px*100, audit.s_p2*100], marker_color='#6366F1')
+            go.Bar(name='Tu Modelo', x=categories, y=[metrics['m_p1']*100, metrics['m_px']*100, metrics['m_p2']*100], marker_color='#10B981', text=[f"{metrics['m_p1']*100:.1f}%", f"{metrics['m_px']*100:.1f}%", f"{metrics['m_p2']*100:.1f}%"], textposition='auto'),
+            go.Bar(name='Mercado Shin', x=categories, y=[metrics['sp1']*100, metrics['spx']*100, metrics['sp2']*100], marker_color='#6366F1', text=[f"{metrics['sp1']*100:.1f}%", f"{metrics['spx']*100:.1f}%", f"{metrics['sp2']*100:.1f}%"], textposition='auto')
         ])
         fig_bar.update_layout(
-            barmode='group',
-            height=260,
+            barmode='group', height=260,
             margin=dict(l=10, r=10, t=10, b=10),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#9CA3AF")),
             font=dict(color="#9CA3AF", size=10),
-            yaxis=dict(gridcolor='#1F2937', title="")
+            yaxis=dict(gridcolor='#1E2937', title="", showticklabels=False)
         )
         st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
 
 with col_g2:
-    st.markdown("##### 🔥 Matriz de Marcadores Exactos")
+    st.markdown("##### 🔥 Matriz de Marcadores Probables")
     if HAS_PLOTLY:
         df_m = np.round(matrix[:5, :5] * 100, 1)
         fig_hm = px.imshow(
@@ -414,24 +582,8 @@ with col_g2:
             text_auto=True
         )
         fig_hm.update_layout(
-            height=260,
-            margin=dict(l=10, r=10, t=10, b=10),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            coloraxis_showscale=False,
-            font=dict(color="#9CA3AF", size=10)
+            height=260, margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            coloraxis_showscale=False, font=dict(color="#9CA3AF", size=10)
         )
         st.plotly_chart(fig_hm, use_container_width=True, config={'displayModeBar': False})
-
-# 5. DETALLES EN PESTAÑAS
-tab1, tab2 = st.tabs(["📋 Desglose Técnico", "ℹ️ Ayuda"])
-
-with tab1:
-    st.markdown(f"""
-    * **Diferencial xG Local ($\Delta \lambda$):** `{f_lh - audit.imp_lh:+.2f}` goles respecto a la casa.
-    * **Diferencial xG Visitante ($\Delta \mu$):** `{f_mu - audit.imp_mu:+.2f}` goles respecto a la casa.
-    * **Métrica de Sesgo ($z$):** `{audit.shin_z:.4f}` ({'Baja actividad de insiders' if audit.shin_z < 0.02 else 'Flujo fuerte de dinero informado'}).
-    """)
-
-with tab2:
-    st.caption("Esta interfaz utiliza CSS Grid dinámico y Plotly optimizado para que los gráficos mantengan proporciones limpias tanto en dispositivos móviles como en monitores.")
