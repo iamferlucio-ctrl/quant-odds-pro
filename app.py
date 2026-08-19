@@ -1,351 +1,558 @@
 import streamlit as st
+import requests
 import numpy as np
-import scipy.stats as stats
-import plotly.graph_objects as go
-import google.generativeai as genai
-import json
+import pandas as pd
+from scipy.optimize import minimize
+from math import exp, factorial
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 # ==============================================================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (UI FIDELIDAD TOTAL AL DISEÑO ORIGINAL)
+# CONFIGURACIÓN Y ESTILOS
 # ==============================================================================
 st.set_page_config(
-    page_title="Terminal Quant v7.0",
-    page_icon="🏟️",
+    page_title="QuantOdds Terminal Pro",
+    page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
-
-PLOTLY_CONFIG = {
-    'displayModeBar': False,
-    'scrollZoom': False,
-    'doubleClick': False,
-    'showAxisDragHandles': False
-}
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0a0d14; color: #d1d5db; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
     
-    /* Header Principal */
-    .header-card {
-        background: linear-gradient(135deg, #131b2e 0%, #0d1322 100%);
-        border: 1px solid #1e293b;
-        border-radius: 12px;
+    html, body, [class*="css"] { font-family: 'Inter', -apple-system, sans-serif; }
+    .stApp { background-color: #0B0E14; color: #E2E8F0; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    
+    .match-header {
+        background: linear-gradient(180deg, #151C28 0%, #0D121D 100%);
+        border: 1px solid #1E293B;
+        border-radius: 10px;
         padding: 16px;
+        margin-bottom: 16px;
         text-align: center;
+    }
+    .match-title { font-size: 1.3rem; font-weight: 700; color: #F8FAFC; }
+    .match-subtitle { font-size: 0.75rem; color: #64748B; text-transform: uppercase; letter-spacing: 1.5px; }
+
+    .forecast-container {
+        background: #111823;
+        border: 1px solid #1E293B;
+        border-radius: 10px;
+        padding: 16px;
         margin-bottom: 16px;
     }
-    .header-title { font-size: 1.35em; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; }
-    .header-subtitle { font-size: 0.72em; font-weight: 700; color: #64748b; letter-spacing: 1.5px; margin-top: 4px; text-transform: uppercase; }
+    .forecast-title {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #38BDF8;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #1E293B;
+        padding-bottom: 6px;
+    }
+    .forecast-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    @media (min-width: 768px) { .forecast-grid { grid-template-columns: repeat(4, 1fr); } }
+    .forecast-card { background: #0B0E14; border: 1px solid #1E293B; border-radius: 8px; padding: 10px; }
+    .forecast-label { font-size: 0.7rem; color: #94A3B8; text-transform: uppercase; font-weight: 600; }
+    .forecast-val { font-size: 1.05rem; font-weight: 700; color: #F8FAFC; margin-top: 2px; }
+    .forecast-sub { font-size: 0.75rem; color: #38BDF8; font-weight: 600; }
 
-    /* Grilla de Métricas Móvil (2 Columnas Rígidas en Pantalla Táctil) */
-    .quant-grid {
-        display: grid !important;
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 10px !important;
-        margin-bottom: 16px !important;
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
     }
-    .quant-card {
-        background-color: #111827;
-        border: 1px solid #1f2937;
-        border-radius: 10px;
-        padding: 12px;
-        text-align: center;
-    }
-    .quant-card-full {
-        grid-column: span 2 !important;
-        background-color: #111827;
-        border: 1px solid #1f2937;
-        border-radius: 10px;
-        padding: 12px;
-        text-align: center;
-    }
-    .quant-label { font-size: 0.70em; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; }
-    .quant-val-green { font-size: 1.35em; font-weight: 800; color: #ef4444; margin-top: 2px; } /* Ajustado según estética */
-    .quant-val-positive { font-size: 1.35em; font-weight: 800; color: #10b981; margin-top: 2px; }
-    .quant-val-neutral { font-size: 1.35em; font-weight: 800; color: #f59e0b; margin-top: 2px; }
-    .quant-val-white { font-size: 1.35em; font-weight: 800; color: #f9fafb; margin-top: 2px; }
+    @media (min-width: 768px) { .kpi-grid { grid-template-columns: repeat(5, 1fr); } }
+    .kpi-card { background: #111722; border: 1px solid #1E293B; border-radius: 8px; padding: 10px; text-align: center; }
+    .kpi-label { font-size: 0.7rem; color: #94A3B8; text-transform: uppercase; font-weight: 600; }
+    .kpi-value { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .val-positive { color: #10B981; }
+    .val-negative { color: #EF4444; }
+    .val-neutral { color: #F59E0B; }
+    .val-white { color: #F8FAFC; }
 
-    /* Módulo de Orden Aprobada / Rechazada */
-    .execution-approved {
-        background-color: rgba(6, 78, 59, 0.25);
-        border: 1px solid #059669;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 20px;
+    .ticket-card { border-radius: 10px; padding: 16px; margin-bottom: 20px; border: 1px solid #1E293B; }
+    .ticket-no-trade { background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.3); }
+    .ticket-trade { background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.3); }
+    .ticket-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .badge-no-trade { background: #EF4444; color: #FFF; }
+    .badge-trade { background: #10B981; color: #FFF; }
+
+    .exec-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.08);
     }
-    .execution-rejected {
-        background-color: rgba(127, 29, 29, 0.25);
-        border: 1px solid #dc2626;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 20px;
+    @media (min-width: 768px) { .exec-grid { grid-template-columns: repeat(4, 1fr); } }
+    .exec-item-label { font-size: 0.72rem; color: #94A3B8; }
+    .exec-item-val { font-size: 1rem; font-weight: 700; color: #F8FAFC; font-family: 'JetBrains Mono', monospace; }
+
+    .warning-chip {
+        background: rgba(245, 158, 11, 0.1);
+        border-left: 3px solid #F59E0B;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        color: #FCD34D;
+        margin-top: 10px;
+        border-radius: 0 4px 4px 0;
     }
-    .badge-approved { background-color: #10b981; color: #022c22; font-weight: 800; font-size: 0.72em; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
-    .badge-rejected { background-color: #ef4444; color: #450a0a; font-weight: 800; font-size: 0.72em; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
-    .execution-title { font-size: 1.15em; font-weight: 800; color: #ffffff; margin-top: 8px; }
-    .execution-desc { font-size: 0.80em; color: #9ca3af; margin-top: 4px; line-height: 1.4; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. BANCO GLOBAL DE LIGAS Y BUSCADOR AVANZADO
+# INTEGRACIÓN DE LIGAS (INCLUYE SUDAMERICANA)
 # ==============================================================================
-CATALOGO_COMPLETO = {
-    "Ecuador - LigaPro": [
-        {"local": "Macará", "visitante": "Santos", "c1": 2.33, "cx": 3.40, "c2": 2.90, "cover": 2.10, "cunder": 1.70, "ah_local": -0.25, "c_ah1": 2.02, "c_ah2": 1.82},
-        {"local": "LDU Quito", "visitante": "Barcelona SC", "c1": 1.95, "cx": 3.30, "c2": 3.80, "cover": 1.85, "cunder": 1.95, "ah_local": -0.50, "c_ah1": 1.95, "c_ah2": 1.90},
-        {"local": "IDV", "visitante": "Emelec", "c1": 1.70, "cx": 3.60, "c2": 4.80, "cover": 1.75, "cunder": 2.05, "ah_local": -0.75, "c_ah1": 1.90, "c_ah2": 1.95}
-    ],
-    "Conmebol - Libertadores": [
-        {"local": "Flamengo", "visitante": "River Plate", "c1": 2.05, "cx": 3.25, "c2": 3.60, "cover": 1.90, "cunder": 1.90, "ah_local": -0.50, "c_ah1": 2.05, "c_ah2": 1.80},
-        {"local": "Palmeiras", "visitante": "LDU Quito", "c1": 1.50, "cx": 4.00, "c2": 6.50, "cover": 1.70, "cunder": 2.10, "ah_local": -1.00, "c_ah1": 1.85, "c_ah2": 2.00}
-    ],
-    "Conmebol - Sudamericana": [
-        {"local": "Athletico PR", "visitante": "Racing Club", "c1": 2.15, "cx": 3.20, "c2": 3.40, "cover": 2.00, "cunder": 1.80, "ah_local": -0.25, "c_ah1": 1.85, "c_ah2": 2.00}
-    ],
-    "Inglaterra - Premier League": [
-        {"local": "Arsenal", "visitante": "Manchester City", "c1": 2.50, "cx": 3.40, "c2": 2.75, "cover": 1.80, "cunder": 2.00, "ah_local": 0.00, "c_ah1": 1.88, "c_ah2": 1.98}
-    ],
-    "España - LaLiga": [
-        {"local": "Real Madrid", "visitante": "Barcelona", "c1": 2.15, "cx": 3.50, "c2": 3.10, "cover": 1.65, "cunder": 2.20, "ah_local": -0.25, "c_ah1": 1.90, "c_ah2": 1.95}
-    ]
+SPORTS_DICT = {
+    "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
+    "Copa Libertadores": "soccer_conmebol_copa_libertadores",
+    "Premier League (Inglaterra)": "soccer_epl",
+    "La Liga (España)": "soccer_spain_la_liga",
+    "Serie A (Italia)": "soccer_italy_serie_a",
+    "Bundesliga (Alemania)": "soccer_germany_bundesliga",
+    "Ligue 1 (Francia)": "soccer_france_ligue_one",
+    "UEFA Champions League": "soccer_uefa_champs_league",
+    "MLS (EE.UU.)": "soccer_usa_mls",
+    "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
+    "Brasileirão Serie A": "soccer_brazil_campeonato"
 }
 
-# ==============================================================================
-# 3. EXTRACCIÓN DINÁMICA IA (GEMINI MULTI-MERCADO)
-# ==============================================================================
-def buscar_partidos_ia_avanzado(query_busqueda, api_key):
-    key_clean = api_key.strip().strip('"').strip("'") if api_key else ""
-    if not key_clean:
-        return None, "Ingresa tu API Key en la barra lateral para buscar en vivo."
-    
+@st.cache_data(ttl=300)
+def fetch_odds_api(api_key: str, sport_key: str, region: str = "eu") -> Tuple[Optional[List[Dict]], str]:
+    if not api_key: return None, "Falta API Key."
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={api_key}&regions={region}&markets=h2h,spreads,totals&oddsFormat=decimal"
     try:
-        genai.configure(api_key=key_clean)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"""
-        Actúa como un feed de datos cuantitativos deportivos. Proporciona partidos y cuotas para la consulta: '{query_busqueda}'.
-        Devuelve EXCLUSIVAMENTE un JSON con esta estructura exacta:
-        {{
-            "partidos": [
-                {{
-                    "local": "Equipo A",
-                    "visitante": "Equipo B",
-                    "c1": 2.10, "cx": 3.20, "c2": 3.40,
-                    "cover": 1.90, "cunder": 1.90,
-                    "ah_local": -0.25, "c_ah1": 1.90, "c_ah2": 1.95
-                }}
-            ]
-        }}
-        """
-        response = model.generate_content(prompt)
-        clean_text = response.text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_text)
-        return data.get("partidos", []), None
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.json(), f"Conexión OK | Restantes: {res.headers.get('x-requests-remaining', 'N/A')}"
+        return None, f"Error HTTP {res.status_code}"
     except Exception as e:
-        return None, f"Error en búsqueda: {str(e)}"
+        return None, f"Error de red: {str(e)}"
 
 # ==============================================================================
-# 4. MOTOR MATEMÁTICO: DE-MARGINALIZACIÓN DE SHIN & DIXON-COLES
+# CÁLCULOS MATEMÁTICOS
 # ==============================================================================
-def estimar_shin(cuotas_1x2):
-    """Calcula probabilidades reales desmarginadas y el factor Z (Insider Trading)"""
-    c = np.array(cuotas_1x2, dtype=float)
-    if np.any(c <= 1.0): return np.array([0.33, 0.33, 0.33]), 0.0
-    
-    inv_c = 1.0 / c
-    sum_inv = np.sum(inv_c)
-    margin = sum_inv - 1.0
-    
-    # Estimación numérica del parámetro z de Shin
-    z = max(0.0001, margin * 0.15) # Insider factor Z aproximado
-    p_raw = (np.sqrt(z**2 + 4 * (1 - z) * (inv_c / sum_inv)) - z) / (2 * (1 - z))
-    p_norm = p_raw / np.sum(p_raw)
-    return p_norm, z
+class DixonColesEngine:
+    @staticmethod
+    def tau(x: int, y: int, lh: float, ma: float, rho: float) -> float:
+        if x == 0 and y == 0: return 1.0 - (lh * ma * rho)
+        elif x == 0 and y == 1: return 1.0 + (lh * rho)
+        elif x == 1 and y == 0: return 1.0 + (ma * rho)
+        elif x == 1 and y == 1: return 1.0 - rho
+        return 1.0
 
-def modelo_dixon_coles(lambda_h, mu_a, rho=-0.13, max_goles=5):
-    """Matriz Bivariada de Poisson con corrección de dependencia para marcadores bajos"""
-    mat = np.zeros((max_goles + 1, max_goles + 1))
-    for i in range(max_goles + 1):
-        for j in range(max_goles + 1):
-            p_i = stats.poisson.pmf(i, lambda_h)
-            p_j = stats.poisson.pmf(j, mu_a)
-            
-            # Factor de ajuste Dixon-Coles (tau)
-            if i == 0 and j == 0: tau = 1.0 - (lambda_h * mu_a * rho)
-            elif i == 0 and j == 1: tau = 1.0 + (lambda_h * rho)
-            elif i == 1 and j == 0: tau = 1.0 + (mu_a * rho)
-            elif i == 1 and j == 1: tau = 1.0 - rho
-            else: tau = 1.0
-            
-            mat[i, j] = max(0.0, p_i * p_j * tau)
-            
-    mat = mat / np.sum(mat) # Normalización
+    @classmethod
+    def generate_matrix(cls, lh: float, ma: float, rho: float = -0.05, max_g: int = 6) -> np.ndarray:
+        m = np.zeros((max_g, max_g))
+        for x in range(max_g):
+            for y in range(max_g):
+                px = (exp(-lh) * (lh ** x)) / factorial(x)
+                py = (exp(-ma) * (ma ** y)) / factorial(y)
+                m[x, y] = max(0.0, px * py * cls.tau(x, y, lh, ma, rho))
+        s = np.sum(m)
+        return m / s if s > 0 else m
+
+class ShinEngine:
+    @classmethod
+    def deoverround(cls, o1: float, ox: float, o2: float) -> Tuple[float, float, float, float]:
+        if o1 <= 1.0 or ox <= 1.0 or o2 <= 1.0: return 0.333, 0.333, 0.333, 0.0
+        raw = np.array([1.0/o1, 1.0/ox, 1.0/o2])
+        beta = np.sum(raw)
+        z = max(0.0001, (beta - 1.0) / 0.25)
+        for _ in range(20):
+            p = (np.sqrt(z**2 + 4 * (1 - z) * (raw / beta)) - z) / (2 * (1 - z))
+            p = p / np.sum(p)
+            n_beta = np.sum(raw / (z + (1 - z) * p))
+            if abs(n_beta - beta) < 1e-6: break
+            z = max(0.0001, min(0.4, z + (beta - n_beta) * 0.1))
+        return float(p[0]), float(p[1]), float(p[2]), float(z)
+
+class ReverseEngine:
+    @classmethod
+    def extract_xg(cls, target_p1: float, target_px: float, target_p2: float) -> Tuple[float, float]:
+        def loss(p):
+            lh, ma = p
+            if lh <= 0.05 or ma <= 0.05: return 999.0
+            m = DixonColesEngine.generate_matrix(lh, ma)
+            p1, px, p2 = float(np.sum(np.tril(m, -1))), float(np.sum(np.diag(m))), float(np.sum(np.triu(m, 1)))
+            return (p1 - target_p1)**2 + (px - target_px)**2 + (p2 - target_p2)**2
+        res = minimize(loss, [1.35, 1.05], bounds=[(0.05, 5.0), (0.05, 5.0)], method='L-BFGS-B')
+        return round(float(res.x[0]), 2), round(float(res.x[1]), 2)
+
+@dataclass
+class DirectionalForecast:
+    market_favorite: str
+    most_probable_outcome: str
+    outcome_confidence: float
+    expected_goals_trend: str
+    goals_confidence: float
+    handicap_forecast: str
+    most_probable_score: str
+    score_probability: float
+
+@dataclass
+class TradeOrder:
+    action: str
+    is_approved: bool
+    best_market: str
+    target_selection: str
+    captured_odds: float
+    fair_odds: float
+    ev_pct: float
+    kelly_stake_pct: float
+    max_risk_cap_amount: float
+    warnings: List[str]
+    narrative_reason: str
+
+def analyze_match_complete(
+    home_team: str, away_team: str,
+    f_lh: float, f_mu: float,
+    o1: float, ox: float, o2: float,
+    ah_line: float, ah_home_o: float,
+    ou_line: float, over_o: float,
+    pin_ah_o: float, bankroll: float = 10000.0,
+    min_ev_threshold: float = 0.025
+) -> Tuple[np.ndarray, Dict, DirectionalForecast, TradeOrder]:
+
+    # Matriz del Modelo Propio
+    m = DixonColesEngine.generate_matrix(f_lh, f_mu)
+    m_p1 = float(np.sum(np.tril(m, -1)))
+    m_px = float(np.sum(np.diag(m)))
+    m_p2 = float(np.sum(np.triu(m, 1)))
+
+    # Mercado Implícito Desmarginado (Shin)
+    sp1, spx, sp2, z = ShinEngine.deoverround(o1, ox, o2)
+    imp_lh, imp_mu = ReverseEngine.extract_xg(sp1, spx, sp2)
+
+    # 1. PRONÓSTICO DIRECCIONAL BASADO EN MERCADO DE CONSENSO (SHIN HEAVY)
+    # Evaluamos objetivamente la mayor probabilidad del mercado
+    mkt_probs = {"1": sp1, "X": spx, "2": sp2}
+    best_mkt_key = max(mkt_probs, key=mkt_probs.get)
+
+    if best_mkt_key == "1":
+        exp_outcome = f"Victoria {home_team}"
+        out_conf = sp1
+    elif best_mkt_key == "2":
+        exp_outcome = f"Victoria {away_team}"
+        out_conf = sp2
+    else:
+        exp_outcome = "Empate / Tablas"
+        out_conf = spx
+
+    mkt_fav = home_team if sp1 > sp2 else away_team
+
+    # Goles según mercado
+    m_mkt = DixonColesEngine.generate_matrix(imp_lh, imp_mu)
+    p_over_mkt = sum(m_mkt[x, y] for x in range(m_mkt.shape[0]) for y in range(m_mkt.shape[1]) if (x + y) > ou_line)
     
-    p_home = np.sum(np.tril(mat, -1))
-    p_draw = np.sum(np.diag(mat))
-    p_away = np.sum(np.triu(mat, 1))
-    p_over = np.sum([mat[i, j] for i in range(max_goles+1) for j in range(max_goles+1) if i + j > 2.5])
-    
-    return p_home, p_draw, p_away, p_over, 1.0 - p_over, mat
+    if p_over_mkt > 0.50:
+        goals_trend = f"Over {ou_line} Goles"
+        goals_conf = p_over_mkt
+    else:
+        goals_trend = f"Under {ou_line} Goles"
+        goals_conf = 1.0 - p_over_mkt
+
+    # Hándicap según mercado
+    if sp1 >= sp2:
+        handicap_forecast = f"{home_team} cubre {ah_line}"
+    else:
+        handicap_forecast = f"{away_team} cubre +{abs(ah_line)}"
+
+    max_idx = np.unravel_index(np.argmax(m_mkt), m_mkt.shape)
+    best_score = f"{max_idx[0]} - {max_idx[1]}"
+    best_score_prob = m_mkt[max_idx[0], max_idx[1]]
+
+    forecast = DirectionalForecast(
+        market_favorite=mkt_fav,
+        most_probable_outcome=exp_outcome,
+        outcome_confidence=round(out_conf * 100, 1),
+        expected_goals_trend=goals_trend,
+        goals_confidence=round(goals_conf * 100, 1),
+        handicap_forecast=handicap_forecast,
+        most_probable_score=best_score,
+        score_probability=round(best_score_prob * 100, 1)
+    )
+
+    # 2. CÁLCULO DE VALOR (+EV) CONTRA EL MODELO PROPIO
+    ev_1x2_home = (m_p1 * o1) - 1.0
+    p_ah_home = m_p1 * 0.88 + m_px * 0.5
+    ev_ah = (p_ah_home * ah_home_o) - 1.0
+    p_over_model = sum(m[x, y] for x in range(m.shape[0]) for y in range(m.shape[1]) if (x + y) > ou_line)
+    ev_ou = (p_over_model * over_o) - 1.0
+
+    ev_dict = {
+        "1X2 Local": (ev_1x2_home, o1, m_p1, f"Local ({home_team}) @ {o1}"),
+        f"AH {ah_line} Local": (ev_ah, ah_home_o, p_ah_home, f"AH {ah_line} {home_team} @ {ah_home_o}"),
+        f"Over {ou_line} Goles": (ev_ou, over_o, p_over_model, f"Over {ou_line} @ {over_o}")
+    }
+
+    best_market_name = max(ev_dict, key=lambda k: ev_dict[k][0])
+    best_ev, best_odds, best_prob, best_selection = ev_dict[best_market_name]
+
+    warnings = []
+    is_approved = True
+
+    # FILTROS DE TRAMPA DE MERCADO Y DIVERGENCIA
+    if abs(imp_lh - f_lh) > 0.55:
+        is_approved = False
+        warnings.append(f"🚨 Divergencia xG Crítica: El mercado proyecta {imp_lh} goles de {home_team} pero tu modelo ingresó {f_lh}. Cuota posiblemente distorsionada.")
+
+    if ev_1x2_home > 0.30:
+        is_approved = False
+        warnings.append(f"🚨 Alerta de Cuota Inflada (+EV masivo de {ev_1x2_home*100:.1f}%): Mercado detecta riesgo extremo/lesiones que el modelo no contempla.")
+
+    if best_ev < min_ev_threshold:
+        is_approved = False
+        warnings.append(f"Mercado Eficiente: EV ({best_ev*100:+.1f}%) no supera el margen mínimo de seguridad ({min_ev_threshold*100:.1f}%).")
+
+    kelly_fraction = 0.0
+    if is_approved and best_ev > 0:
+        b = best_odds - 1.0
+        q = 1.0 - best_prob
+        f_k = (b * best_prob - q) / b
+        kelly_fraction = max(0.0, min(0.03, float(f_k * 0.25)))
+
+    kelly_stake_pct = round(kelly_fraction * 100, 2)
+    max_risk_cap_amount = round(kelly_fraction * bankroll, 2)
+
+    if is_approved:
+        action_text = "EJECUTAR ORDEN (+EV VALIDADO)"
+        narrative = f"Ventaja confirmada en **{best_market_name}** con **EV de {best_ev*100:+.2f}%**."
+    else:
+        action_text = "ABSTENERSE / RIESGO DE MERCADO"
+        narrative = f"Tendencia del mercado apunta a **{exp_outcome}**, pero no se valida ejecución financiera por divergencias o cuota ajustada."
+
+    order = TradeOrder(
+        action=action_text, is_approved=is_approved, best_market=best_market_name,
+        target_selection=best_selection, captured_odds=best_odds,
+        fair_odds=round(1.0 / max(0.001, best_prob), 2), ev_pct=round(best_ev * 100, 2),
+        kelly_stake_pct=kelly_stake_pct, max_risk_cap_amount=max_risk_cap_amount,
+        warnings=warnings, narrative_reason=narrative
+    )
+
+    metrics = {
+        "ev_1x2": round(ev_1x2_home * 100, 2), "ev_ah": round(ev_ah * 100, 2),
+        "ev_ou": round(ev_ou * 100, 2), "imp_lh": imp_lh, "imp_mu": imp_mu,
+        "shin_z": round(z, 4), "m_p1": m_p1, "m_px": m_px, "m_p2": m_p2,
+        "sp1": sp1, "spx": spx, "sp2": sp2
+    }
+
+    return m, metrics, forecast, order
 
 # ==============================================================================
-# 5. CONTROLES Y SELECCIÓN (BARRA LATERAL / BÚSQUEDA)
+# INTERFAZ Y SIDEBAR
 # ==============================================================================
-st.sidebar.markdown("### 🔑 CREDENCIALES & BUSCADOR")
-gemini_key = st.sidebar.text_input("Gemini API Key:", type="password")
+st.sidebar.title("⚡ QuantOdds Terminal")
+st.sidebar.markdown("---")
+
+api_key = st.sidebar.text_input("Odds-API Key", type="password")
+selected_league_label = st.sidebar.selectbox("Seleccionar Liga", list(SPORTS_DICT.keys()))
+sport_key = SPORTS_DICT[selected_league_label]
+
+def_home, def_away = "Cerro Porteño", "Palmeiras-SP"
+def_o1, def_ox, def_o2 = 4.40, 3.40, 1.85
+def_ah_line, def_ah_o = 0.50, 1.95
+def_ou_line, def_over_o = 2.50, 2.05
+
+if api_key:
+    raw_data, status_msg = fetch_odds_api(api_key, sport_key)
+    st.sidebar.caption(status_msg)
+    if raw_data:
+        match_options = [f"{m['home_team']} vs {m['away_team']}" for m in raw_data]
+        if match_options:
+            selected_match_str = st.sidebar.selectbox("🏟️ Partidos en Vivo", match_options)
+            match_data = raw_data[match_options.index(selected_match_str)]
+            def_home, def_away = match_data['home_team'], match_data['away_team']
+            if match_data.get('bookmakers'):
+                bm = match_data['bookmakers'][0]
+                for mkt in bm.get('markets', []):
+                    if mkt['key'] == 'h2h':
+                        for o in mkt['outcomes']:
+                            if o['name'] == def_home: def_o1 = float(o['price'])
+                            elif o['name'] == def_away: def_o2 = float(o['price'])
+                            elif o['name'] == 'Draw': def_ox = float(o['price'])
+                    elif mkt['key'] == 'spreads':
+                        for o in mkt['outcomes']:
+                            if o['name'] == def_home:
+                                def_ah_line = float(o.get('point', -0.5))
+                                def_ah_o = float(o['price'])
+                    elif mkt['key'] == 'totals':
+                        for o in mkt['outcomes']:
+                            if o['name'] == 'Over':
+                                def_ou_line = float(o.get('point', 2.5))
+                                def_over_o = float(o['price'])
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔍 BUSCADOR DE PARTIDOS EN VIVO")
-query_custom = st.sidebar.text_input("Buscar partido o liga (ej: 'Barcelona vs Real Madrid'):")
+home_team = st.sidebar.text_input("Equipo Local", value=def_home)
+away_team = st.sidebar.text_input("Equipo Visitante", value=def_away)
+bankroll = st.sidebar.number_input("Capital Total ($)", value=10000.0, step=500.0)
 
-if st.sidebar.button("🔎 Ejecutar Búsqueda IA", use_container_width=True):
-    if query_custom:
-        with st.sidebar.spinner("Buscando mercados cuantitativos..."):
-            partidos_encontrados, err = buscar_partidos_ia_avanzado(query_custom, gemini_key)
-            if partidos_encontrados:
-                st.session_state['partidos_activos'] = partidos_encontrados
-                st.sidebar.success(f"¡{len(partidos_encontrados)} partidos cargados!")
-            else:
-                st.sidebar.error(err)
+st.sidebar.markdown("**Métricas xG (Modelo)**")
+f_lh = st.sidebar.number_input("xG Local (λ)", value=0.88, step=0.05)
+f_mu = st.sidebar.number_input("xG Visitante (μ)", value=1.17, step=0.05)
 
-liga_sel = st.sidebar.selectbox("O selecciona del Catálogo:", list(CATALOGO_COMPLETO.keys()))
+st.sidebar.markdown("**Cuotas Mercado**")
+o1 = st.sidebar.number_input("Cuota 1", value=def_o1, step=0.01)
+ox = st.sidebar.number_input("Cuota X", value=def_ox, step=0.01)
+o2 = st.sidebar.number_input("Cuota 2", value=def_o2, step=0.01)
 
-if 'partidos_activos' not in st.session_state or not query_custom:
-    partidos_disponibles = CATALOGO_COMPLETO[liga_sel]
-else:
-    partidos_disponibles = st.session_state['partidos_activos']
+ah_line = st.sidebar.number_input("Línea AH", value=def_ah_line, step=0.25)
+ah_o = st.sidebar.number_input("Cuota AH Local", value=def_ah_o, step=0.01)
+ou_line = st.sidebar.number_input("Línea Totales", value=def_ou_line, step=0.25)
+over_o = st.sidebar.number_input("Cuota Over", value=def_over_o, step=0.01)
+pin_ah = st.sidebar.number_input("Ref. Pinnacle", value=1.91, step=0.01)
 
-opciones_str = [f"{p['local']} vs {p['visitante']}" for p in partidos_disponibles]
-partido_idx = st.sidebar.selectbox("Evento Activo:", range(len(opciones_str)), format_func=lambda x: opciones_str[x])
-p = partidos_disponibles[partido_idx]
+matrix, metrics, forecast, order = analyze_match_complete(
+    home_team, away_team, f_lh, f_mu, o1, ox, o2, ah_line, ah_o, ou_line, over_o, pin_ah, bankroll
+)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚙️ AJUSTE DE CUOTAS")
-c_1 = st.sidebar.number_input(f"1 ({p['local']}):", value=float(p['c1']), step=0.01)
-c_x = st.sidebar.number_input("X (Empate):", value=float(p['cx']), step=0.01)
-c_2 = st.sidebar.number_input(f"2 ({p['visitante']}):", value=float(p['c2']), step=0.01)
-c_over = st.sidebar.number_input("Over 2.5 Goles:", value=float(p['cover']), step=0.01)
-c_under = st.sidebar.number_input("Under 2.5 Goles:", value=float(p['cunder']), step=0.01)
-ah_line = st.sidebar.number_input("Línea Hándicap Asiático:", value=float(p.get('ah_local', -0.25)), step=0.25)
-c_ah1 = st.sidebar.number_input("Cuota Hándicap Local:", value=float(p.get('c_ah1', 1.90)), step=0.01)
-
-# ==============================================================================
-# 6. PROCESAMIENTO CUANTITATIVO Y MÉTRICAS
-# ==============================================================================
-probs_shin, insider_z = estimar_shin([c_1, c_x, c_2])
-
-# xG Implícitos vía Poisson Inverso
-total_xg_est = 2.60
-lambda_h = (probs_shin[0] * total_xg_est * 1.08) / (probs_shin[0] + probs_shin[2] + 1e-5)
-mu_a = (probs_shin[2] * total_xg_est) / (probs_shin[0] + probs_shin[2] + 1e-5)
-
-# Modelo Dixon-Coles
-p_dc_1, p_dc_x, p_dc_2, p_dc_over, p_dc_under, mat_dc = modelo_dixon_coles(lambda_h, mu_a)
-
-# Cálculo de EV (Expected Values)
-ev_1x2 = max((p_dc_1 * c_1 - 1.0), (p_dc_x * c_x - 1.0), (p_dc_2 * c_2 - 1.0)) * 100
-ev_ou = max((p_dc_over * c_over - 1.0), (p_dc_under * c_under - 1.0)) * 100
-
-# EV Hándicap (Aproximación por modelo)
-prob_ah_cover = p_dc_1 + (p_dc_x * 0.5 if abs(ah_line) == 0.25 else 0)
-ev_handicap = (prob_ah_cover * c_ah1 - 1.0) * 100
-
-max_ev_global = max(ev_1x2, ev_ou, ev_handicap)
-ejecucion_permitida = max_ev_global > 0
-
-# ==============================================================================
-# 7. INTERFAZ GRÁFICA (EXACTA A LA CAPTURA DE PANTALLA)
-# ==============================================================================
-
-# Header Principal
+# 1. HEADER
 st.markdown(f"""
-<div class="header-card">
-    <div class="header-title">🏟️ {p['local']} vs {p['visitante']}</div>
-    <div class="header-subtitle">Terminal de Inteligencia Cuantitativa</div>
+<div class="match-header">
+    <div class="match-title">🏟️ {home_team} vs {away_team}</div>
+    <div class="match-subtitle">ANÁLISIS DIRECCIONAL DE MERCADO Y EVALUACIÓN DE RIESGO</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Grilla de 5 Métricas Clave (Layout 2x2 + 1 Card Ancha en Móvil)
+# 2. PRONÓSTICO DIRECCIONAL OBJETIVO (TENDENCIA DEL PARTIDO)
 st.markdown(f"""
-<div class="quant-grid">
-    <div class="quant-card">
-        <div class="quant-label">EV HÁNDICAP</div>
-        <div class="{'quant-val-positive' if ev_handicap > 0 else 'quant-val-green'}">{ev_handicap:+.1f}%</div>
-    </div>
-    <div class="quant-card">
-        <div class="quant-label">EV MERCADO 1X2</div>
-        <div class="{'quant-val-positive' if ev_1x2 > 0 else 'quant-val-green'}">{ev_1x2:+.1f}%</div>
-    </div>
-    <div class="quant-card">
-        <div class="quant-label">EV OVER/UNDER</div>
-        <div class="{'quant-val-positive' if ev_ou > 0 else 'quant-val-green'}">{ev_ou:+.1f}%</div>
-    </div>
-    <div class="quant-card">
-        <div class="quant-label">XG CASA IMPL.</div>
-        <div class="quant-val-white">{lambda_h:.2f} / {mu_a:.2f}</div>
-    </div>
-    <div class="quant-card-full">
-        <div class="quant-label">SHIN (INSIDER Z)</div>
-        <div class="quant-val-neutral">{insider_z:.4f}</div>
+<div class="forecast-container">
+    <div class="forecast-title">🔮 TENDENCIA DIRECCIONAL DE MERCADO (LO MÁS PROBABLE)</div>
+    <div class="forecast-grid">
+        <div class="forecast-card">
+            <div class="forecast-label">Escenario Más Probable</div>
+            <div class="forecast-val">{forecast.most_probable_outcome}</div>
+            <div class="forecast-sub">Prob. Implícita: {forecast.outcome_confidence}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Marcador Frecuente</div>
+            <div class="forecast-val">{forecast.most_probable_score}</div>
+            <div class="forecast-sub">Probabilidad: {forecast.score_probability}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Proyección de Goles</div>
+            <div class="forecast-val">{forecast.expected_goals_trend}</div>
+            <div class="forecast-sub">Probabilidad: {forecast.goals_confidence}%</div>
+        </div>
+        <div class="forecast-card">
+            <div class="forecast-label">Línea Cobertura</div>
+            <div class="forecast-val">{forecast.handicap_forecast}</div>
+            <div class="forecast-sub">Favorito Mercado: {forecast.market_favorite}</div>
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Módulo de Decisiones de Ejecución
-if ejecucion_permitida:
-    st.markdown(f"""
-    <div class="execution-approved">
-        <span class="badge-approved">EJECUCIÓN PERMITIDA</span>
-        <div class="execution-title">Orden Aprobada (+EV)</div>
-        <div class="execution-desc">Auditoría realizada cruzando el modelo Dixon-Coles frente a la de-marginalización de Shin. Se detectó una ventaja cuantitativa exploitable de <b>+{max_ev_global:.2f}% EV</b>.</div>
+# 3. KPIs METRICAS CLAVE
+def get_cls(val):
+    if val > 0: return "val-positive"
+    if val < 0: return "val-negative"
+    return "val-neutral"
+
+st.markdown(f"""
+<div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">EV Hándicap</div><div class="kpi-value {get_cls(metrics['ev_ah'])}">{metrics['ev_ah']:+.1f}%</div></div>
+    <div class="kpi-card"><div class="kpi-label">EV Mercado 1X2</div><div class="kpi-value {get_cls(metrics['ev_1x2'])}">{metrics['ev_1x2']:+.1f}%</div></div>
+    <div class="kpi-card"><div class="kpi-label">EV Over/Under</div><div class="kpi-value {get_cls(metrics['ev_ou'])}">{metrics['ev_ou']:+.1f}%</div></div>
+    <div class="kpi-card"><div class="kpi-label">xG Casa Impl.</div><div class="kpi-value val-white">{metrics['imp_lh']} / {metrics['imp_mu']}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Shin (Insider z)</div><div class="kpi-value val-neutral">{metrics['shin_z']:.4f}</div></div>
+</div>
+""", unsafe_allow_html=True)
+
+# 4. TICKET DE EJECUCIÓN FINANCIERA
+ticket_cls = "ticket-trade" if order.is_approved else "ticket-no-trade"
+badge_cls = "badge-trade" if order.is_approved else "badge-no-trade"
+warnings_html = "".join([f'<div class="warning-chip">{w}</div>' for w in order.warnings])
+
+st.markdown(f"""
+<div class="ticket-card {ticket_cls}">
+    <div><span class="ticket-badge {badge_cls}">{order.action}</span></div>
+    <p style="margin: 8px 0 0 0; font-size: 0.88rem; color: #CBD5E1;">{order.narrative_reason}</p>
+    <div class="exec-grid">
+        <div><div class="exec-item-label">Selección Recomendada</div><div class="exec-item-val">{order.target_selection if order.is_approved else 'Ninguna (Mercado Riesgoso)'}</div></div>
+        <div><div class="exec-item-label">Cuota Justa / Mercado</div><div class="exec-item-val">{order.fair_odds} / {order.captured_odds if order.is_approved else 'N/A'}</div></div>
+        <div><div class="exec-item-label">Esperanza (+EV)</div><div class="exec-item-val {get_cls(order.ev_pct)}">{order.ev_pct:+.2f}%</div></div>
+        <div><div class="exec-item-label">Stake Sugerido (Kelly)</div><div class="exec-item-val">{order.kelly_stake_pct}% (${order.max_risk_cap_amount:,.1f})</div></div>
     </div>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown(f"""
-    <div class="execution-rejected">
-        <span class="badge-rejected">EJECUCIÓN RECHAZADA</span>
-        <div class="execution-title">Orden Bloqueada (-EV)</div>
-        <div class="execution-desc">Auditoría realizada cruzando el modelo Dixon-Coles frente a la de-marginalización de Shin. El mercado no ofrece margen positivo sobre las cuotas actuales.</div>
-    </div>
-    """, unsafe_allow_html=True)
+    {warnings_html}
+</div>
+""", unsafe_allow_html=True)
 
-# Sección de Probabilidades Comparativas
-st.markdown("### 📊 Probabilidades: Modelo vs Casa")
+# 5. GRÁFICOS OPTIMIZADOS PARA MÓVIL
+col_g1, col_g2 = st.columns(2)
 
-col_fig1, col_fig2 = st.columns(2)
+with col_g1:
+    st.markdown("##### 📊 Comparativa de Probabilidades")
+    if HAS_PLOTLY:
+        categories = [f"{home_team} (1)", "Empate (X)", f"{away_team} (2)"]
+        fig_bar = go.Figure(data=[
+            go.Bar(
+                name='Tu Modelo', x=categories,
+                y=[metrics['m_p1']*100, metrics['m_px']*100, metrics['m_p2']*100],
+                marker_color='#10B981',
+                text=[f"{metrics['m_p1']*100:.1f}%", f"{metrics['m_px']*100:.1f}%", f"{metrics['m_p2']*100:.1f}%"],
+                textposition='auto', textfont=dict(size=12, color='#FFFFFF'),
+                hovertemplate="<b>%{x}</b><br>Tu Modelo: <b>%{y:.1f}%</b><extra></extra>"
+            ),
+            go.Bar(
+                name='Mercado Shin', x=categories,
+                y=[metrics['sp1']*100, metrics['spx']*100, metrics['sp2']*100],
+                marker_color='#6366F1',
+                text=[f"{metrics['sp1']*100:.1f}%", f"{metrics['spx']*100:.1f}%", f"{metrics['sp2']*100:.1f}%"],
+                textposition='auto', textfont=dict(size=12, color='#FFFFFF'),
+                hovertemplate="<b>%{x}</b><br>Mercado Shin: <b>%{y:.1f}%</b><extra></extra>"
+            )
+        ])
+        fig_bar.update_layout(
+            barmode='group', height=280, dragmode=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color="#E2E8F0")),
+            font=dict(color="#E2E8F0", size=12),
+            xaxis=dict(fixedrange=True, tickfont=dict(size=12, color="#E2E8F0")),
+            yaxis=dict(fixedrange=True, gridcolor='#1E2937', title="", showticklabels=False)
+        )
+        st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
-with col_fig1:
-    fig_bar = go.Figure(data=[
-        go.Bar(name='Modelo (Dixon-Coles)', x=['1', 'X', '2'], y=[p_dc_1*100, p_dc_x*100, p_dc_2*100], marker_color='#10b981'),
-        go.Bar(name='Mercado (Shin)', x=['1', 'X', '2'], y=[probs_shin[0]*100, probs_shin[1]*100, probs_shin[2]*100], marker_color='#3b82f6')
-    ])
-    fig_bar.update_layout(
-        barmode='group',
-        height=200,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#9ca3af', size=11),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    fig_bar.update_xaxes(fixedrange=True)
-    fig_bar.update_yaxes(fixedrange=True)
-    st.plotly_chart(fig_bar, use_container_width=True, config=PLOTLY_CONFIG)
-
-with col_fig2:
-    # Densidad de Goles
-    x_g = np.linspace(0, 6, 100)
-    y_g = stats.norm.pdf(x_g, loc=(lambda_h + mu_a), scale=1.0)
-    fig_density = go.Figure(go.Scatter(x=x_g, y=y_g, mode='lines', fill='tozeroy', line=dict(color='#10b981')))
-    fig_density.add_vline(x=2.5, line_dash="dash", line_color="#ef4444")
-    fig_density.update_layout(
-        height=200,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#9ca3af', size=11)
-    )
-    fig_density.update_xaxes(fixedrange=True)
-    fig_density.update_yaxes(fixedrange=True)
-    st.plotly_chart(fig_density, use_container_width=True, config=PLOTLY_CONFIG)
+with col_g2:
+    st.markdown("##### 🔥 Matriz de Marcadores Probables")
+    if HAS_PLOTLY:
+        df_m = np.round(matrix[:5, :5] * 100, 1)
+        fig_hm = px.imshow(
+            df_m,
+            x=[f"{i}" for i in range(5)],
+            y=[f"{i}" for i in range(5)],
+            color_continuous_scale="Viridis",
+            text_auto=True
+        )
+        fig_hm.update_traces(
+            textfont=dict(size=12, color="#FFFFFF"),
+            hovertemplate=f"<b>{home_team} %{{y}} - %{{x}} {away_team}</b><br>Probabilidad: <b>%{{z:.1f}}%</b><extra></extra>"
+        )
+        fig_hm.update_layout(
+            height=280, dragmode=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            coloraxis_showscale=False,
+            font=dict(color="#E2E8F0", size=12),
+            xaxis=dict(fixedrange=True, title=f"Goles {away_team}", tickfont=dict(size=12, color="#E2E8F0")),
+            yaxis=dict(fixedrange=True, title=f"Goles {home_team}", tickfont=dict(size=12, color="#E2E8F0"))
+        )
+        st.plotly_chart(fig_hm, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
