@@ -2,15 +2,20 @@ import streamlit as st
 import requests
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from scipy.optimize import minimize
 from math import exp, factorial
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 
+# Importación segura de Plotly
+try:
+    import plotly.express as px
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
+
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ==============================================================================
 st.set_page_config(
     page_title="QuantOdds Pro 360 — Terminal Cuantitativa",
@@ -19,40 +24,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos CSS personalizados para apariencia de Terminal Financiera
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; }
-    .metric-card {
+    .report-box-approved {
         background-color: #161B22;
-        border: 1px solid #30363D;
-        border-radius: 10px;
-        padding: 15px;
-        text-align: center;
-    }
-    .report-box {
-        background-color: #161B22;
-        border-left: 5px solid #1F6B3A;
-        padding: 20px;
-        border-radius: 5px;
-        margin-bottom: 20px;
+        border-left: 5px solid #238636;
+        padding: 18px;
+        border-radius: 6px;
+        margin-bottom: 15px;
     }
     .report-box-rejected {
         background-color: #161B22;
-        border-left: 5px solid #8B0000;
-        padding: 20px;
-        border-radius: 5px;
-        margin-bottom: 20px;
+        border-left: 5px solid #DA3633;
+        padding: 18px;
+        border-radius: 6px;
+        margin-bottom: 15px;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# SERVICIO DE CONEXIÓN A THE-ODDS-API
+# CONEXIÓN A THE-ODDS-API
 # ==============================================================================
 class OddsAPIService:
     LEAGUES = {
-        # --- SUDAMÉRICA & CONMEBOL ---
         "Copa Libertadores": "soccer_conmebol_copa_libertadores",
         "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
         "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
@@ -60,8 +56,6 @@ class OddsAPIService:
         "Liga BetPlay (Colombia)": "soccer_colombia_primer_a",
         "Primera División (Chile)": "soccer_chile_campeonato",
         "Liga 1 (Perú)": "soccer_peru_liga_1",
-        
-        # --- EUROPA & INTERNACIONAL ---
         "UEFA Champions League": "soccer_uefa_champs_league",
         "Premier League (Inglaterra)": "soccer_epl",
         "La Liga (España)": "soccer_spain_la_liga",
@@ -96,7 +90,7 @@ class OddsAPIService:
             return []
 
 # ==============================================================================
-# MOTORES MATEMÁTICOS (DIXON-COLES, SHIN, REVERSE, DECONVOLUTION)
+# MOTORES CUANTITATIVOS (DIXON-COLES, SHIN, INGENIERÍA INVERSA)
 # ==============================================================================
 class DixonColesEngine:
     @staticmethod
@@ -189,7 +183,7 @@ class MultiMarketDeconvolution:
         return min(1.0, max(0.0, prob_win))
 
 # ==============================================================================
-# ESTRUCTURA DE RESULTADOS DE AUDITORÍA
+# ESTRUCTURA Y AUDITORÍA
 # ==============================================================================
 @dataclass
 class AuditResult:
@@ -239,22 +233,22 @@ class QuantAuditor:
         
         if ev_1 > 0.035 and ev_ah < -0.015:
             warnings.append(
-                f"🚨 TRAMPA DE LIQUIDEZ (+EV Falso en 1X2): El mercado 1X2 señala +{ev_1*100:.1f}%, "
-                f"pero el mercado ancla de Hándicap Asiático ({ah_line}) está en negativo ({ev_ah*100:.1f}%). Postura denegada."
+                f"🚨 TRAMPA DE LIQUIDEZ: El mercado 1X2 señala +{ev_1*100:.1f}%, "
+                f"pero el mercado ancla AH ({ah_line}) está en negativo ({ev_ah*100:.1f}%). Postura denegada."
             )
             is_valid = False
 
         if abs(imp_lambda - fundamental_lambda) > 0.55 and ev_1 > 0.04:
             warnings.append(
-                f"🚨 DESVIACIÓN ESTRUCTURAL EXTREMA: La casa asume xG Local de {imp_lambda}, "
-                f"mientras que tu modelo requiere {fundamental_lambda}. Posible baja no contemplada o distorsión."
+                f"🚨 DESVIACIÓN ESTRUCTURAL DE xG: La casa asume xG Local de {imp_lambda}, "
+                f"mientras que tu modelo usa {fundamental_lambda}. Posible baja relevante o noticia de último minuto."
             )
             is_valid = False
 
         if pinnacle_ah_odds > 1.0 and ah_home_odds > (pinnacle_ah_odds * 1.035):
             warnings.append(
                 f"🚨 ALERTA DE FLUJO SHARP: La cuota ofrecida ({ah_home_odds}) está inflada "
-                f"un {((ah_home_odds/pinnacle_ah_odds)-1)*100:.1f}% respecto a la cuota de referencia de Pinnacle ({pinnacle_ah_odds})."
+                f"un {((ah_home_odds/pinnacle_ah_odds)-1)*100:.1f}% respecto a Pinnacle ({pinnacle_ah_odds})."
             )
             is_valid = False
 
@@ -290,7 +284,7 @@ class QuantAuditor:
         )
 
 # ==============================================================================
-# DASHBOARD PRINCIPAL Y SIDEBAR
+# INTERFAZ PRINCIPAL
 # ==============================================================================
 st.title("⚡ QuantOdds Pro 360")
 st.caption("Terminal de Inteligencia Cuantitativa, Desmarcado de Shin & Auditoría Estocástica")
@@ -301,7 +295,7 @@ api_key = OddsAPIService.get_api_key()
 
 auto_odds_1, auto_odds_x, auto_odds_2 = 1.80, 3.75, 4.50
 auto_over_odds = 1.85
-match_title = "Partido Personalizado"
+match_title = "Análisis Personalizado"
 
 if api_key:
     selected_league_label = st.sidebar.selectbox("Selecciona Competición:", list(OddsAPIService.LEAGUES.keys()))
@@ -326,7 +320,7 @@ if api_key:
                         if outcome["name"] == match_data["home_team"]: auto_odds_1 = outcome["price"]
                         elif outcome["name"] == match_data["away_team"]: auto_odds_2 = outcome["price"]
                         elif outcome["name"] == "Draw": auto_odds_x = outcome["price"]
-        st.sidebar.success("✅ Cuotas en tiempo real cargadas.")
+        st.sidebar.success("✅ Cuotas cargadas correctamente.")
 
 st.sidebar.divider()
 st.sidebar.subheader("2. Parámetros xG del Modelo")
@@ -344,7 +338,7 @@ ou_line = st.sidebar.number_input("Línea Totales (O/U)", value=2.50, step=0.25)
 over_odds = st.sidebar.number_input("Cuota Over", value=float(auto_over_odds), step=0.01)
 pin_ah = st.sidebar.number_input("Pinnacle AH Local (Ref)", value=1.91, step=0.01)
 
-# COMPUTAR AUDITORÍA Y MATRIZ
+# COMPUTAR AUDITORÍA
 matrix, audit = QuantAuditor.audit(
     f_lambda, f_mu,
     odds_1, odds_x, odds_2,
@@ -353,9 +347,7 @@ matrix, audit = QuantAuditor.audit(
     pin_ah
 )
 
-# ==============================================================================
-# MÉTRICAS CLAVE EN BANNERS SUPERIORES
-# ==============================================================================
+# METRICAS PRINCIPALES
 st.subheader(f"🏟️ {match_title}")
 
 m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
@@ -363,61 +355,73 @@ m_col1.metric("EV Hándicap Asiático", f"{audit.ev_ah_pct:+.2f}%")
 m_col2.metric("EV Mercado 1X2", f"{audit.ev_1x2_pct:+.2f}%")
 m_col3.metric("EV Totales (O/U)", f"{audit.ev_totals_pct:+.2f}%")
 m_col4.metric("xG Implícito Casa", f"{audit.implied_lambda} / {audit.implied_mu}")
-m_col5.metric("Nivel Informado (Shin z)", f"{audit.shin_z:.4f}")
+m_col5.metric("Nivel Insider (Shin z)", f"{audit.shin_z:.4f}")
 
 st.divider()
 
 # ==============================================================================
-# SECCIÓN GRAFICA E INTERPRETACIÓN VISUAL
+# VISUALIZACIÓN GRÁFICA RBUSTA
 # ==============================================================================
-col_chart1, col_chart2 = st.columns([1.2, 1])
+col_chart1, col_chart2 = st.columns([1.1, 1])
 
 with col_chart1:
-    st.markdown("### 🔥 Mapa de Calor: Marcadores Exactos (Dixon-Coles)")
-    # Crear Heatmap Interactivo con Plotly
-    sub_matrix = np.round(matrix[:6, :6] * 100, 2)
-    fig_matrix = px.imshow(
-        sub_matrix,
-        labels=dict(x="Goles Visitante", y="Goles Local", color="Probabilidad (%)"),
-        x=[f"Vis {i}" for i in range(6)],
-        y=[f"Loc {j}" for j in range(6)],
-        color_continuous_scale="Viridis",
-        text_auto=True
+    st.markdown("### 🔥 Mapa de Calor: Marcadores Exactos (0 a 5 Goles)")
+    df_heatmap = pd.DataFrame(
+        np.round(matrix[:6, :6] * 100, 2),
+        index=[f"Local {i}" for i in range(6)],
+        columns=[f"Vis {j}" for j in range(6)]
     )
-    fig_matrix.update_layout(height=400, margin=dict(l=20, r=20, t=30, b=20))
-    st.plotly_chart(fig_matrix, use_container_width=True)
+    
+    if HAS_PLOTLY:
+        fig_matrix = px.imshow(
+            df_heatmap,
+            labels=dict(x="Goles Visitante", y="Goles Local", color="Probabilidad (%)"),
+            color_continuous_scale="Viridis",
+            text_auto=True
+        )
+        fig_matrix.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10))
+        st.plotly_chart(fig_matrix, use_container_width=True)
+    else:
+        # Respaldo nativo con Pandas
+        st.dataframe(
+            df_heatmap.style.background_gradient(cmap="mako", axis=None),
+            use_container_width=True
+        )
 
 with col_chart2:
-    st.markdown("### 📊 Modelo vs. Mercado Desmarcado (Shin)")
-    # Bar Chart Comparativo de Probabilidades
+    st.markdown("### 📊 Tu Modelo vs. Mercado Desmarcado (Shin)")
     df_compare = pd.DataFrame({
-        "Resultado": ["Victoria Local (1)", "Empate (X)", "Victoria Visitante (2)"],
         "Tu Modelo (%)": [audit.model_p1 * 100, audit.model_px * 100, audit.model_p2 * 100],
         "Mercado Shin (%)": [audit.shin_p1 * 100, audit.shin_px * 100, audit.shin_p2 * 100]
-    })
+    }, index=["Victoria Local (1)", "Empate (X)", "Victoria Visitante (2)"])
     
-    fig_bars = px.bar(
-        df_compare, 
-        x="Resultado", 
-        y=["Tu Modelo (%)", "Mercado Shin (%)"], 
-        barmode="group",
-        color_discrete_sequence=["#00CC96", "#AB63FA"]
-    )
-    fig_bars.update_layout(height=400, margin=dict(l=20, r=20, t=30, b=20), legend=dict(title=""))
-    st.plotly_chart(fig_bars, use_container_width=True)
+    if HAS_PLOTLY:
+        df_reset = df_compare.reset_index().rename(columns={'index': 'Resultado'})
+        fig_bars = px.bar(
+            df_reset, 
+            x="Resultado", 
+            y=["Tu Modelo (%)", "Mercado Shin (%)"], 
+            barmode="group",
+            color_discrete_sequence=["#238636", "#8957E5"]
+        )
+        fig_bars.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10), legend=dict(title=""))
+        st.plotly_chart(fig_bars, use_container_width=True)
+    else:
+        # Respaldo nativo con Streamlit Bar Chart
+        st.bar_chart(df_compare, height=380)
 
 st.divider()
 
 # ==============================================================================
-# INFORME DE AUDITORÍA Y DICTAMEN EJECUTIVO (INTERPRETACIÓN SERIA)
+# REPORTES DE AUDITORÍA EJECUTIVA
 # ==============================================================================
-st.markdown("## 📋 Informe de Auditoría Cuantitativa & Dictamen de Riesgo")
+st.markdown("## 📋 Reporte Ejecutivo & Dictamen de Riesgo")
 
-box_class = "report-box" if audit.is_valid else "report-box-rejected"
+box_class = "report-box-approved" if audit.is_valid else "report-box-rejected"
 st.markdown(f"""
 <div class="{box_class}">
-    <h3>{audit.status_title}</h3>
-    <p><b>Evaluación de Coherencia Multimercado:</b> El análisis contrasta tu modelo de Poisson Bivariado contra la estructura de precios del mercado despojada de overround.</p>
+    <h3 style="margin-top:0;">{audit.status_title}</h3>
+    <p><b>Diagnóstico Estocástico:</b> Evaluación cruzada de expectativas ofensivas frente a la estructura de precios sin overround del bookmaker.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -425,64 +429,58 @@ if audit.warnings:
     for w in audit.warnings:
         st.error(w)
 
-tab_report, tab_reverse, tab_math = st.tabs([
-    "📑 Reporte Ejecutivo de Operación", 
-    "🔬 Desglose de Ingeniería Inversa",
-    "📐 Ecuaciones y Metodología"
+tab_report, tab_reverse, tab_docs = st.tabs([
+    "📑 Informe Cuantitativo de Operación", 
+    "🔬 Deconvolución de Cuotas",
+    "📚 Fundamentos Matemáticos"
 ])
 
 with tab_report:
     c_rep1, c_rep2 = st.columns(2)
     
     with c_rep1:
-        st.markdown("#### 1. Diagnóstico de Eficiencia y Mercado")
-        st.write(f"- **Métrica Insider (Shin $z$):** `{audit.shin_z:.4f}`")
+        st.markdown("#### 1. Métrica de Mercado y Asimetría")
+        st.write(f"- **Métrica Insider ($z$):** `{audit.shin_z:.4f}`")
         if audit.shin_z > 0.03:
-            st.warning("⚠️ **Alta presencia de flujo informado ($z > 0.03$):** Las casas están ajustando sus cuotas para protegerse de apostadores profesionales o información privilegiada.")
+            st.warning("⚠️ **Presencia de flujo informado:** La casa de apuestas ha ajustado márgenes por movimiento de apostadores pesados o información privada.")
         else:
-            st.info("ℹ️ **Mercado balanceado:** El precio refleja comportamiento público estándar con bajo nivel de distorsión por liquidez insider.")
+            st.info("ℹ️ **Mercado balanceado:** Liquidez pública estándar sin signos de manipulación insider.")
 
-        st.markdown("#### 2. Divergencia Estructural de Criterio")
         diff_lh = f_lambda - audit.implied_lambda
         diff_mu = f_mu - audit.implied_mu
         st.write(f"- **Diferencial xG Local ($\Delta \lambda$):** `{diff_lh:+.2f}` goles")
         st.write(f"- **Diferencial xG Visitante ($\Delta \mu$):** `{diff_mu:+.2f}` goles")
-        
-        if diff_lh > 0.3:
-            st.write("💡 **Interpretación:** Tu modelo asigna sensiblemente mayor capacidad ofensiva al equipo local que la cuota del mercado.")
-        elif diff_lh < -0.3:
-            st.write("⚠️ **Interpretación:** El mercado proyecta mayor dominio local del que respalda tu modelo. Precaución.")
 
     with c_rep2:
-        st.markdown("#### 3. Plan de Ejecución y Gestión de Capital")
+        st.markdown("#### 2. Plan de Gestión de Capital (Kelly)")
         if audit.is_valid and audit.kelly_stake_pct > 0:
             st.success(f"""
-            **RECOMENDACIÓN DE TRADING:**
-            * **Activo / Mercado:** Hándicap Asiático `{ah_line}` a favor del Local.
+            **ORDEN DE EJECUCIÓN:**
+            * **Mercado Objetivo:** Hándicap Asiático `{ah_line}` Local
             * **Cuota Mínima Exigida:** `{1.0 / audit.model_p1:.2f}`
             * **Cuota Capturada:** `{ah_home_odds}`
-            * **Valor Esperado (+EV):** `+{audit.ev_ah_pct}%`
-            * **Asignación de Capital (Kelly 1/5):** `{audit.kelly_stake_pct}%` de tu Bankroll total.
+            * **Esperanza Matemática (+EV):** `+{audit.ev_ah_pct}%`
+            * **Stake Sugerido (Kelly 1/5):** `{audit.kelly_stake_pct}%` del Bankroll
             """)
         else:
             st.error("""
-            **RECOMENDACIÓN DE TRADING:**
-            * **Acción:** NO OPERAR / ABSTENERSE.
-            * **Motivo:** La ventaja detectada no supera el umbral de seguridad, existe incoherencia entre mercados (1X2 vs AH) o la cuota está castigada por el overround.
+            **RECOMENDACIÓN:**
+            * **Acción:** NO OPERAR / ABSTENERSE
+            * **Causa:** Ausencia de esperanza matemática suficiente o divergencia crítica entre 1X2 y Hándicap Asiático.
             """)
 
 with tab_reverse:
-    st.markdown("### Deconvolución por Optimización No Lineal (SciPy L-BFGS-B)")
-    st.write("Mediante ingeniería inversa, desnudamos las cuotas 1X2 del libro para encontrar cuáles son los goles esperados ($\lambda, \mu$) que la casa de apuestas está asumiendo internamente:")
+    st.markdown("### Ingeniería Inversa SciPy (Algoritmo L-BFGS-B)")
+    st.write("Goles esperados desnudados directamente del precio implícito del libro:")
     
-    col_rev1, col_rev2 = st.columns(2)
-    col_rev1.metric("xG Local Reconstruido (Casa)", f"{audit.implied_lambda} goles")
-    col_rev2.metric("xG Visitante Reconstruido (Casa)", f"{audit.implied_mu} goles")
+    c_r1, c_r2 = st.columns(2)
+    c_r1.metric("xG Local Implícito Casa", f"{audit.implied_lambda} goles")
+    c_r2.metric("xG Visitante Implícito Casa", f"{audit.implied_mu} goles")
 
-with tab_math:
+with tab_docs:
     st.markdown("""
-    #### Fundamentos Cuantitativos de la Terminal
-    1. **Ajuste Bivariado de Dixon-Coles:** Modifica la probabilidad Poisson independiente mediante el factor de dependencia $\\tau_{x,y}(\\rho)$, resolviendo el sesgo histórico de infravaloración de empates cortos ($0-0, 1-1$).
-    2. **Desmarcado por Modelo de Shin:** A diferencia del método proporcional simple, el modelo de Shin resuelve el parámetro $z$ (proporción de apostadores informados) para extraer las verdaderas probabilidades implícitas del bookmaker.
-    3. **Filtro Anti-Trampa de Liquidez:** Bloquea operaciones cuando el mercado secundario ($1\\text{X}2$) muestra $+EV$ aparente pero el mercado primario/profundo (Hándicap Asiático) cotiza en precios negativos, evitando trampas de liquidez de casas recreativas.
+    #### Formulación Técnica
+    1. **Poisson Bivariado (Dixon-Coles):** Incorpora corrección $\\tau_{x,y}(\\rho)$ para marcadores de baja anotación ($0$-$0$, $1$-$0$, $0$-$1$, $1$-$1$).
+    2. **Desmarcado de Shin:** Utiliza optimización iterativa para calcular la probabilidad real despejando el sesgo de información $z$.
+    3. **Filtro Anti-Trampas:** Deniega posturas si existe divergencia de EV entre el mercado 1X2 y el mercado profundo de Hándicap Asiático.
     """)
