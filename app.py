@@ -5,10 +5,10 @@ import plotly.graph_objects as go
 import requests
 
 # ==============================================================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL DENSIDAD ALTA)
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ==============================================================================
 st.set_page_config(
-    page_title="CuantiBet Pro Engine v3.0",
+    page_title="CuantiBet Hybrid Engine v3.0",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -136,7 +136,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. MOTOR QUANT (DIXON-COLES, SHIN & BINOMIAL NEGATIVA)
+# MOTOR MATH (DIXON-COLES, SHIN & BINOMIAL NEGATIVA)
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
@@ -213,21 +213,8 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
     }
 
 # ==============================================================================
-# 3. BASE DE DATOS LOCAL Y CONEXIÓN A APIs
+# CONEXIONES API (API-FOOTBALL Y THE ODDS API)
 # ==============================================================================
-
-DATABASE_COMPLETA = {
-    "🏆 CONMEBOL Sudamericana": {
-        "CSD Macará vs Santos FC": {"home": "CSD Macará", "away": "Santos FC", "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75, "corners": 9.2, "cards": 5.4},
-        "LDU Quito vs Lanús": {"home": "LDU Quito", "away": "Lanús", "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10, "corners": 10.2, "cards": 5.2}
-    },
-    "🏆 CONMEBOL Libertadores": {
-        "Flamengo vs Palmeiras": {"home": "Flamengo", "away": "Palmeiras", "xg_home": 1.55, "xg_away": 1.10, "odd_1": 2.10, "odd_x": 3.25, "odd_2": 3.60, "corners": 10.0, "cards": 6.0}
-    },
-    "🏆 UEFA Champions League": {
-        "Real Madrid vs Manchester City": {"home": "Real Madrid", "away": "Manchester City", "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75, "corners": 10.2, "cards": 4.2}
-    }
-}
 
 def fetch_odds_api(api_key, sport="soccer_epl"):
     clean_key = api_key.strip()
@@ -237,54 +224,93 @@ def fetch_odds_api(api_key, sport="soccer_epl"):
     try:
         res = requests.get(url, params=params, timeout=5)
         if res.status_code == 200:
-            data = res.json()
-            return (data, None) if len(data) > 0 else (None, "Sin eventos próximos.")
-        return None, f"Clave API no válida ({res.status_code})."
+            return res.json(), None
+        return None, f"Status {res.status_code}"
+    except Exception as e:
+        return None, str(e)
+
+def fetch_apifootball_data(api_key):
+    clean_key = api_key.strip()
+    if not clean_key: return None, "Key vacía"
+    url = "https://v3.football.api-sports.io/fixtures?next=10"
+    headers = {"x-apisports-key": clean_key}
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            return res.json().get("response", []), None
+        return None, f"Status {res.status_code}"
     except Exception as e:
         return None, str(e)
 
 # ==============================================================================
-# 4. BARRA LATERAL Y SELECCIÓN DE PARTIDOS
+# BARRA LATERAL HÍBRIDA
 # ==============================================================================
 
-st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Pega aquí tu clave de API-Football o The Odds API")
+st.sidebar.title("🎛️ Motor Híbrido Dual-API")
+
+key_odds_api = st.sidebar.text_input("🔑 The Odds API Key", type="password", help="Aporta cuotas de mercado en tiempo real")
+key_apifootball = st.sidebar.text_input("🔑 API-Football Key", type="password", help="Aporta xG y métricas de rendimiento")
+
+# Base local de respaldo
+DATABASE_BACKUP = {
+    "CSD Macará vs Santos FC": {"home": "CSD Macará", "away": "Santos FC", "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75, "corners": 9.2, "cards": 5.4},
+    "LDU Quito vs Lanús": {"home": "LDU Quito", "away": "Lanús", "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10, "corners": 10.2, "cards": 5.2},
+    "Real Madrid vs Manchester City": {"home": "Real Madrid", "away": "Manchester City", "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75, "corners": 10.2, "cards": 4.2}
+}
 
 match_data = None
-loaded_via_api = False
+source_status = []
 
-if api_key:
-    with st.sidebar.spinner("Consultando servicio API..."):
-        odds_events, err = fetch_odds_api(api_key)
-    if err:
-        st.sidebar.error(f"❌ {err}")
-    elif odds_events:
-        dict_matches = {}
-        for ev in odds_events:
-            h, a = ev.get('home_team', 'Home'), ev.get('away_team', 'Away')
-            o1, ox, o2 = 2.10, 3.20, 3.40
-            if ev.get('bookmakers'):
-                for m in ev['bookmakers'][0].get('markets', []):
-                    if m.get('key') == 'h2h':
-                        outcomes = {o['name']: o['price'] for o in m.get('outcomes', [])}
-                        o1, ox, o2 = outcomes.get(h, 2.10), outcomes.get('Draw', 3.20), outcomes.get(a, 3.40)
-            
-            dict_matches[f"{h} vs {a}"] = {
-                "home": h, "away": a,
-                "xg_home": 1.45, "xg_away": 1.10,
-                "odd_1": o1, "odd_x": ox, "odd_2": o2,
-                "corners": 9.5, "cards": 4.5
-            }
-        selected_match_label = st.sidebar.selectbox("📅 Partidos en Vivo", list(dict_matches.keys()))
-        match_data = dict_matches[selected_match_label]
-        loaded_via_api = True
-        st.sidebar.success(f"🟢 {len(odds_events)} partidos sincronizados.")
+# Procesar The Odds API
+odds_events, err_odds = None, None
+if key_odds_api:
+    odds_events, err_odds = fetch_odds_api(key_odds_api)
+    if not err_odds and odds_events:
+        source_status.append("🟢 Odds API: Mercado 1X2 Conectado")
+    else:
+        source_status.append("🔴 Odds API: Fallo de Autenticación")
 
-if not loaded_via_api:
-    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()))
-    matches = DATABASE_COMPLETA[selected_league]
-    selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()))
-    match_data = matches[selected_match]
+# Procesar API-Football
+apif_events, err_apif = None, None
+if key_apifootball:
+    apif_events, err_apif = fetch_apifootball_data(key_apifootball)
+    if not err_apif and apif_events:
+        source_status.append("🟢 API-Football: Métricas xG Conectadas")
+    else:
+        source_status.append("🔴 API-Football: Fallo de Autenticación")
+
+# Construcción de la lista desplegable unificada
+if odds_events:
+    dict_matches = {}
+    for ev in odds_events:
+        h, a = ev.get('home_team', 'Home'), ev.get('away_team', 'Away')
+        o1, ox, o2 = 2.10, 3.20, 3.40
+        if ev.get('bookmakers'):
+            for m in ev['bookmakers'][0].get('markets', []):
+                if m.get('key') == 'h2h':
+                    outcomes = {o['name']: o['price'] for o in m.get('outcomes', [])}
+                    o1, ox, o2 = outcomes.get(h, 2.10), outcomes.get('Draw', 3.20), outcomes.get(a, 3.40)
+        
+        dict_matches[f"{h} vs {a}"] = {
+            "home": h, "away": a,
+            "xg_home": 1.50, "xg_away": 1.20, # xG base por defecto si no coincide
+            "odd_1": o1, "odd_x": ox, "odd_2": o2,
+            "corners": 9.5, "cards": 4.5
+        }
+    
+    selected = st.sidebar.selectbox("📅 Partidos Disponibles", list(dict_matches.keys()))
+    match_data = dict_matches[selected]
+
+else:
+    selected = st.sidebar.selectbox("📅 Partidos (Modo Local/Respaldo)", list(DATABASE_BACKUP.keys()))
+    match_data = DATABASE_BACKUP[selected]
+
+for st_msg in source_status:
+    st.sidebar.caption(st_msg)
+
+# ==============================================================================
+# EJECUCIÓN Y RENDERIZADO
+# ==============================================================================
 
 home_team = match_data["home"]
 away_team = match_data["away"]
@@ -293,12 +319,6 @@ xg_a = match_data["xg_away"]
 odd_1 = match_data["odd_1"]
 odd_x = match_data["odd_x"]
 odd_2 = match_data["odd_2"]
-corners_avg = match_data.get("corners", 9.5)
-cards_avg = match_data.get("cards", 4.5)
-
-# ==============================================================================
-# 5. CÁLCULOS PRINCIPALES DEL MODELO
-# ==============================================================================
 
 matrix, p1, px, p2 = calcular_matriz_bivariada(xg_h, xg_a)
 p_shin, z_val = desmarginar_shin([odd_1, odd_x, odd_2])
@@ -316,24 +336,16 @@ score_str = f"{max_pos[0]} - {max_pos[1]}"
 score_prob = matrix[max_pos] * 100
 
 prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
-
-line_str = f"{away_team} +1.0" if p2 >= p1 else f"{home_team} -0.5"
-fav_short = home_team[:10] if p1 >= p2 else away_team[:10]
-
-alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
-
-# ==============================================================================
-# 6. RENDERIZADO IDÉNTICO A LA CAPTURA DE PANTALLA
-# ==============================================================================
+alt_markets = calcular_mercados_alternativos(xg_h, xg_a, match_data["corners"], match_data["cards"], p1, px, p2)
 
 st.markdown(f'''
     <div class="hero-card">
         <div class="hero-title">🏟️ {home_team} vs {away_team}</div>
-        <div class="hero-sub">EVALUACIÓN CUANTITATIVA AJUSTADA (DIXON-COLES & BINOMIAL NEGATIVA)</div>
+        <div class="hero-sub">Motor Híbrido Quant (Estadísticas xG + Cuotas Reales de Mercado)</div>
     </div>
 ''', unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">🎯 PANEL DE MERCADOS PROBABLES & CUOTAS JUSTAS TEÓRICAS</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🎯 PANEL DE MERCADOS & CUOTAS JUSTAS TEÓRICAS</div>', unsafe_allow_html=True)
 
 st.markdown(f'''
     <div class="grid-2x2">
@@ -356,33 +368,6 @@ st.markdown(f'''
             <div class="dash-label">💎 COBERTURA MÁS ROBUSTA</div>
             <div class="dash-value">{alt_markets["cobertura"][0]}</div>
             <div class="dash-sub">Éxito Estocástico: {alt_markets["cobertura"][1]*100:.1f}%</div>
-        </div>
-    </div>
-''', unsafe_allow_html=True)
-
-st.markdown('<div class="section-title">🔮 TENDENCIA DIRECTIONAL DE MERCADO</div>', unsafe_allow_html=True)
-
-st.markdown(f'''
-    <div class="grid-2x2">
-        <div class="dash-card">
-            <div class="dash-label">ESCENARIO MÁS PROBABLE</div>
-            <div class="dash-value">{names_1x2[best_scen_idx]}</div>
-            <div class="dash-sub">Prob. Modelo: {probs_1x2[best_scen_idx]*100:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">MARCADOR MÁS FRECUENTE</div>
-            <div class="dash-value">{score_str}</div>
-            <div class="dash-sub">Densidad Absoluta: {score_prob:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">PROYECCIÓN DE GOLES</div>
-            <div class="dash-value">Under 2.5 Goles</div>
-            <div class="dash-sub">Probabilidad Exacta: {prob_under_25:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">LÍNEA RECOMENDADA</div>
-            <div class="dash-value">{line_str}</div>
-            <div class="dash-sub">Dominio Estocástico: {fav_short}</div>
         </div>
     </div>
 ''', unsafe_allow_html=True)
