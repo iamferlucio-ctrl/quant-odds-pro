@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import requests
 
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL COMPACTO PRO)
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ==============================================================================
 st.set_page_config(
     page_title="CuantiBet Pro Engine",
@@ -18,7 +18,6 @@ st.markdown("""
     <style>
     .stApp { background-color: #060911; }
     
-    /* Banner Principal */
     .hero-card {
         background: linear-gradient(180deg, #0F172A 0%, #0B1120 100%);
         border: 1px solid #1E293B;
@@ -41,7 +40,6 @@ st.markdown("""
         font-weight: 700;
     }
     
-    /* Títulos de Sección */
     .section-title {
         font-size: 0.78rem;
         font-weight: 800;
@@ -51,7 +49,6 @@ st.markdown("""
         margin: 14px 0 8px 0;
     }
     
-    /* GRID 2x2 MÓVIL */
     .grid-2x2 {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -59,7 +56,6 @@ st.markdown("""
         margin-bottom: 10px;
     }
     
-    /* Tarjetas del Dashboard */
     .dash-card {
         background: #0F172A;
         border: 1px solid #1E293B;
@@ -100,7 +96,6 @@ st.markdown("""
         color: #38BDF8;
     }
     
-    /* Bloque de Interpretación */
     .analysis-box {
         background: #0B132B;
         border-left: 4px solid #38BDF8;
@@ -112,7 +107,6 @@ st.markdown("""
         line-height: 1.4;
     }
     
-    /* Métricas EV */
     .metric-card {
         background: #0D1527;
         border: 1px solid #1E293B;
@@ -142,7 +136,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTOR MATEMÁTICO (SHIN & POISSON CDF/PMF)
+# MOTOR MATEMÁTICO (SHIN, POISSON CDF/PMF Y COBERTURA)
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
@@ -172,23 +166,19 @@ def calcular_matriz(lambda_h, mu_a):
     return matrix, p1, px, p2
 
 def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, odd_1, odd_x, odd_2, p1, px, p2):
-    # BTTS
     p_home_0 = stats.poisson.pmf(0, lambda_h)
     p_away_0 = stats.poisson.pmf(0, mu_a)
     p_btts_no = p_home_0 + p_away_0 - (p_home_0 * p_away_0)
     p_btts_yes = 1.0 - p_btts_no
     
-    # Córners (Línea estándar 9.5)
     line_corners = 9.5
     prob_under_corners = stats.poisson.cdf(line_corners, corners_avg)
     prob_over_corners = 1.0 - prob_under_corners
     
-    # Tarjetas (Línea estándar 4.5)
     line_cards = 4.5
     prob_under_cards = stats.poisson.cdf(line_cards, cards_avg)
     prob_over_cards = 1.0 - prob_under_cards
     
-    # Selección Táctica (💎 Cobertura)
     candidatos = [
         ("Doble Oportunidad 1X", p1 + px, 1.0 / max(0.01, p1 + px)),
         ("Doble Oportunidad X2", p2 + px, 1.0 / max(0.01, p2 + px)),
@@ -207,25 +197,26 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, odd_1
     }
 
 # ==============================================================================
-# BASE DE DATOS EXTENSA
+# BASE DE DATOS EXTENDIDA (COPAS INTERNACIONALES, EUROPA Y LATINOAMÉRICA)
 # ==============================================================================
 
-DATABASE_AMPLIA = {
-    "🏆 Copa Sudamericana": {
-        "Montevideo City Torque vs CA Tigre BA": {
-            "home": "Montevideo City Torque", "away": "CA Tigre BA",
-            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
-            "corners": 9.1, "cards": 4.0
+DATABASE_COMPLETA = {
+    # --- COPAS INTERCONTINENTALES E INTERNACIONALES ---
+    "🏆 UEFA Champions League": {
+        "Real Madrid vs Manchester City": {
+            "home": "Real Madrid", "away": "Manchester City",
+            "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75,
+            "corners": 10.2, "cards": 4.2
         },
-        "LDU Quito vs Lanús": {
-            "home": "LDU Quito", "away": "Lanús",
-            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
-            "corners": 10.2, "cards": 5.2
+        "Bayern München vs Paris Saint-Germain": {
+            "home": "Bayern München", "away": "PSG",
+            "xg_home": 1.85, "xg_away": 1.30, "odd_1": 2.00, "odd_x": 3.70, "odd_2": 3.40,
+            "corners": 9.8, "cards": 4.5
         },
-        "Independiente Medellín vs Defensa y Justicia": {
-            "home": "DIM", "away": "Defensa y Justicia",
-            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
-            "corners": 9.8, "cards": 4.8
+        "Inter Milan vs FC Barcelona": {
+            "home": "Inter Milan", "away": "FC Barcelona",
+            "xg_home": 1.45, "xg_away": 1.40, "odd_1": 2.55, "odd_x": 3.40, "odd_2": 2.65,
+            "corners": 9.3, "cards": 4.8
         }
     },
     "🏆 Copa Libertadores": {
@@ -245,19 +236,50 @@ DATABASE_AMPLIA = {
             "corners": 8.9, "cards": 5.5
         }
     },
-    "🇪🇨 LigaPro Ecuador": {
-        "Barcelona SC vs Emelec": {
-            "home": "Barcelona SC", "away": "Emelec",
-            "xg_home": 1.50, "xg_away": 1.05, "odd_1": 2.05, "odd_x": 3.20, "odd_2": 3.70,
-            "corners": 9.5, "cards": 5.8
+    "🏆 Copa Sudamericana": {
+        "LDU Quito vs Lanús": {
+            "home": "LDU Quito", "away": "Lanús",
+            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
+            "corners": 10.2, "cards": 5.2
         },
-        "Independiente del Valle vs Aucas": {
-            "home": "IDV", "away": "Aucas",
-            "xg_home": 1.95, "xg_away": 0.80, "odd_1": 1.55, "odd_x": 3.90, "odd_2": 6.00,
-            "corners": 10.1, "cards": 4.2
+        "Montevideo City Torque vs CA Tigre BA": {
+            "home": "Montevideo City Torque", "away": "CA Tigre BA",
+            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
+            "corners": 9.1, "cards": 4.0
+        },
+        "Independiente Medellín vs Defensa y Justicia": {
+            "home": "DIM", "away": "Defensa y Justicia",
+            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
+            "corners": 9.8, "cards": 4.8
         }
     },
-    "🇬🇧 Premier League": {
+    "🏆 UEFA Europa League": {
+        "AS Roma vs FC Porto": {
+            "home": "AS Roma", "away": "FC Porto",
+            "xg_home": 1.40, "xg_away": 1.15, "odd_1": 2.20, "odd_x": 3.30, "odd_2": 3.30,
+            "corners": 9.5, "cards": 5.0
+        },
+        "Athletic Club vs Ajax": {
+            "home": "Athletic Club", "away": "Ajax",
+            "xg_home": 1.60, "xg_away": 1.05, "odd_1": 1.90, "odd_x": 3.50, "odd_2": 4.00,
+            "corners": 10.1, "cards": 4.1
+        }
+    },
+    "🏆 Concacaf Champions Cup": {
+        "Club América vs Inter Miami": {
+            "home": "Club América", "away": "Inter Miami",
+            "xg_home": 1.75, "xg_away": 1.30, "odd_1": 2.05, "odd_x": 3.50, "odd_2": 3.40,
+            "corners": 9.9, "cards": 4.6
+        },
+        "Tigres UANL vs Columbus Crew": {
+            "home": "Tigres UANL", "away": "Columbus Crew",
+            "xg_home": 1.50, "xg_away": 1.00, "odd_1": 1.95, "odd_x": 3.40, "odd_2": 3.80,
+            "corners": 9.2, "cards": 4.3
+        }
+    },
+
+    # --- LIGAS DE EUROPA ---
+    "🇬🇧 Premier League (Inglaterra)": {
         "Arsenal vs Chelsea": {
             "home": "Arsenal", "away": "Chelsea",
             "xg_home": 1.90, "xg_away": 1.15, "odd_1": 1.85, "odd_x": 3.75, "odd_2": 4.20,
@@ -269,11 +291,104 @@ DATABASE_AMPLIA = {
             "corners": 10.8, "cards": 4.1
         }
     },
-    "🇪🇸 LaLiga": {
-        "Real Madrid vs Barcelona": {
-            "home": "Real Madrid", "away": "Barcelona",
+    "🇪🇸 LaLiga (España)": {
+        "Real Madrid vs FC Barcelona": {
+            "home": "Real Madrid", "away": "FC Barcelona",
             "xg_home": 1.75, "xg_away": 1.50, "odd_1": 2.15, "odd_x": 3.50, "odd_2": 3.20,
             "corners": 9.7, "cards": 5.0
+        },
+        "Atlético de Madrid vs Sevilla FC": {
+            "home": "Atlético de Madrid", "away": "Sevilla FC",
+            "xg_home": 1.60, "xg_away": 0.85, "odd_1": 1.75, "odd_x": 3.50, "odd_2": 4.80,
+            "corners": 9.1, "cards": 5.6
+        }
+    },
+    "🇮🇹 Serie A (Italia)": {
+        "Juventus vs AC Milan": {
+            "home": "Juventus", "away": "AC Milan",
+            "xg_home": 1.35, "xg_away": 1.20, "odd_1": 2.30, "odd_x": 3.15, "odd_2": 3.20,
+            "corners": 9.0, "cards": 4.9
+        },
+        "Napoli vs Inter Milan": {
+            "home": "Napoli", "away": "Inter Milan",
+            "xg_home": 1.40, "xg_away": 1.45, "odd_1": 2.60, "odd_x": 3.30, "odd_2": 2.70,
+            "corners": 9.6, "cards": 4.7
+        }
+    },
+    "🇩🇪 Bundesliga (Alemania)": {
+        "Bayer Leverkusen vs Borussia Dortmund": {
+            "home": "Bayer Leverkusen", "away": "Borussia Dortmund",
+            "xg_home": 2.05, "xg_away": 1.40, "odd_1": 1.85, "odd_x": 3.90, "odd_2": 3.80,
+            "corners": 10.4, "cards": 3.9
+        }
+    },
+    "🇫🇷 Ligue 1 (Francia)": {
+        "Olympique de Marseille vs AS Monaco": {
+            "home": "Marseille", "away": "AS Monaco",
+            "xg_home": 1.50, "xg_away": 1.35, "odd_1": 2.25, "odd_x": 3.40, "odd_2": 3.10,
+            "corners": 9.4, "cards": 4.4
+        }
+    },
+
+    # --- LIGAS DE LATINOAMÉRICA ---
+    "🇪🇨 LigaPro (Ecuador)": {
+        "Barcelona SC vs Emelec": {
+            "home": "Barcelona SC", "away": "Emelec",
+            "xg_home": 1.50, "xg_away": 1.05, "odd_1": 2.05, "odd_x": 3.20, "odd_2": 3.70,
+            "corners": 9.5, "cards": 5.8
+        },
+        "Independiente del Valle vs Aucas": {
+            "home": "IDV", "away": "Aucas",
+            "xg_home": 1.95, "xg_away": 0.80, "odd_1": 1.55, "odd_x": 3.90, "odd_2": 6.00,
+            "corners": 10.1, "cards": 4.2
+        },
+        "LDU Quito vs Universidad Católica": {
+            "home": "LDU Quito", "away": "U. Católica",
+            "xg_home": 1.70, "xg_away": 1.10, "odd_1": 1.85, "odd_x": 3.40, "odd_2": 4.20,
+            "corners": 9.9, "cards": 5.1
+        }
+    },
+    "🇦🇷 Liga Profesional (Argentina)": {
+        "Boca Juniors vs River Plate": {
+            "home": "Boca Juniors", "away": "River Plate",
+            "xg_home": 1.10, "xg_away": 1.15, "odd_1": 2.70, "odd_x": 2.95, "odd_2": 2.80,
+            "corners": 8.8, "cards": 6.5
+        },
+        "Racing Club vs Independiente": {
+            "home": "Racing Club", "away": "Independiente",
+            "xg_home": 1.35, "xg_away": 0.95, "odd_1": 2.15, "odd_x": 3.10, "odd_2": 3.60,
+            "corners": 9.2, "cards": 5.9
+        }
+    },
+    "🇧🇷 Brasileirão Serie A (Brasil)": {
+        "Palmeiras vs São Paulo": {
+            "home": "Palmeiras", "away": "São Paulo",
+            "xg_home": 1.60, "xg_away": 0.90, "odd_1": 1.80, "odd_x": 3.40, "odd_2": 4.50,
+            "corners": 10.3, "cards": 5.4
+        },
+        "Flamengo vs Fluminense": {
+            "home": "Flamengo", "away": "Fluminense",
+            "xg_home": 1.65, "xg_away": 1.05, "odd_1": 1.90, "odd_x": 3.30, "odd_2": 4.10,
+            "corners": 9.7, "cards": 5.7
+        }
+    },
+    "🇨🇴 Liga BetPlay (Colombia)": {
+        "Millonarios vs Atlético Nacional": {
+            "home": "Millonarios", "away": "Atlético Nacional",
+            "xg_home": 1.30, "xg_away": 1.05, "odd_1": 2.20, "odd_x": 3.10, "odd_2": 3.40,
+            "corners": 9.0, "cards": 5.3
+        }
+    },
+    "🇲🇽 Liga MX (México)": {
+        "Club América vs Chivas Guadalajara": {
+            "home": "Club América", "away": "Chivas",
+            "xg_home": 1.65, "xg_away": 1.10, "odd_1": 1.90, "odd_x": 3.40, "odd_2": 4.00,
+            "corners": 9.6, "cards": 4.8
+        },
+        "Tigres UANL vs CF Monterrey": {
+            "home": "Tigres UANL", "away": "CF Monterrey",
+            "xg_home": 1.40, "xg_away": 1.25, "odd_1": 2.25, "odd_x": 3.20, "odd_2": 3.20,
+            "corners": 9.3, "cards": 5.1
         }
     }
 }
@@ -290,28 +405,27 @@ def fetch_api_leagues(api_key):
     return []
 
 # ==============================================================================
-# BARRA LATERAL (SELECCIÓN AUTOMÁTICA)
+# BARRA LATERAL CON MÁS OPCIONES
 # ==============================================================================
 
 st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Ingresa para consultar fixture en tiempo real")
+api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Consulta partidos en tiempo real")
 
 match_data = None
 
 if api_key:
     leagues_api = fetch_api_leagues(api_key)
     if leagues_api:
-        dict_leagues = {f"{item['league']['name']} ({item['country']['name']})": item['league']['id'] for item in leagues_api[:25]}
+        dict_leagues = {f"{item['league']['name']} ({item['country']['name']})": item['league']['id'] for item in leagues_api[:35]}
         selected_l_name = st.sidebar.selectbox("🏆 Campeonato / Liga", list(dict_leagues.keys()))
         l_id = dict_leagues[selected_l_name]
         
-        # Cargar partidos
         try:
             res_f = requests.get(f"https://v3.football.api-sports.io/fixtures?league={l_id}&next=10", headers={"x-apisports-key": api_key}, timeout=5)
             fixtures = res_f.json().get("response", []) if res_f.status_code == 200 else []
             if fixtures:
                 f_dict = {f"{f['teams']['home']['name']} vs {f['teams']['away']['name']}": f for f in fixtures}
-                selected_f_name = st.sidebar.selectbox("📅 Partidos Próximos", list(f_dict.keys()))
+                selected_f_name = st.sidebar.selectbox("📅 Partido por Jugar", list(f_dict.keys()))
                 f_raw = f_dict[selected_f_name]
                 match_data = {
                     "home": f_raw['teams']['home']['name'],
@@ -324,12 +438,11 @@ if api_key:
             pass
 
 if not match_data:
-    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_AMPLIA.keys()))
-    matches = DATABASE_AMPLIA[selected_league]
+    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()))
+    matches = DATABASE_COMPLETA[selected_league]
     selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()))
     match_data = matches[selected_match]
 
-# Extracción de variables
 home_team = match_data["home"]
 away_team = match_data["away"]
 xg_h = match_data["xg_home"]
@@ -341,7 +454,7 @@ corners_avg = match_data.get("corners", 9.5)
 cards_avg = match_data.get("cards", 4.5)
 
 # ==============================================================================
-# EJECUCIÓN DE CÁLCULOS
+# EJECUCIÓN DEL MOTOR
 # ==============================================================================
 matrix, p1, px, p2 = calcular_matriz(xg_h, xg_a)
 p_shin, z_val = desmarginar_shin([odd_1, odd_x, odd_2])
@@ -364,10 +477,9 @@ fav_str = f"Favorito Mercado: {away_team}" if p2 >= p1 else f"Favorito Mercado: 
 alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, odd_1, odd_x, odd_2, p1, px, p2)
 
 # ==============================================================================
-# INTERFAZ DE USUARIO PRINCIPAL
+# DESPLIEGUE DASHBOARD
 # ==============================================================================
 
-# 1. Encabezado Banner
 st.markdown(f'''
     <div class="hero-card">
         <div class="hero-title">🏟️ {home_team} vs {away_team}</div>
@@ -375,7 +487,6 @@ st.markdown(f'''
     </div>
 ''', unsafe_allow_html=True)
 
-# 2. Panel Superior de Cobertura (4 Tarjetas)
 st.markdown('<div class="section-title">🎯 PANEL DE MERCADOS PROBABLES & OPCIONES INFRAVALORADAS</div>', unsafe_allow_html=True)
 
 st.markdown(f'''
@@ -403,7 +514,6 @@ st.markdown(f'''
     </div>
 ''', unsafe_allow_html=True)
 
-# 3. Tendencia Direccional (Grid 2x2 Principal)
 st.markdown('<div class="section-title">🔮 TENDENCIA DIRECTIONAL DE MERCADO (LO MÁS PROBABLE)</div>', unsafe_allow_html=True)
 
 st.markdown(f'''
@@ -431,7 +541,6 @@ st.markdown(f'''
     </div>
 ''', unsafe_allow_html=True)
 
-# 4. Métricas EV Inferiores
 col_m1, col_m2 = st.columns(2)
 with col_m1:
     st.markdown('''
@@ -451,7 +560,6 @@ with col_m2:
         </div>
     ''', unsafe_allow_html=True)
 
-# 5. Análisis Cuantitativo e Interpretación Táctica (RESTARRADO)
 st.markdown('<div class="section-title">📝 INTERPRETACIONAL Y GESTIÓN DE CAPITAL</div>', unsafe_allow_html=True)
 
 stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por Filtro Anti-Trampas)"
@@ -467,9 +575,6 @@ st.markdown(f'''
     </div>
 ''', unsafe_allow_html=True)
 
-# ==============================================================================
-# VISUALIZACIÓN GRÁFICA CORREGIDA (SIN SOLAPAMIENTO NI ZOOM ACCIDENTAL)
-# ==============================================================================
 st.markdown('<div class="section-title">📊 COMPARATIVA DE PROBABILIDADES Y MATRIZ DE MARCADORES</div>', unsafe_allow_html=True)
 
 col_g1, col_g2 = st.columns(2)
