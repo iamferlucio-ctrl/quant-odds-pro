@@ -400,29 +400,50 @@ DATABASE_COMPLETA = {
 }
 
 # ==============================================================================
-# FUNCIÓN DE CONSULTA API ROBUSTA (DIAGNÓSTICO EN TIEMPO REAL)
+# FUNCIÓN API ROBUSTA CON SOPORTE COMPATIBLE RAPIDAPI Y API-SPORTS DIRECTO
 # ==============================================================================
 
 def fetch_api_data(endpoint, api_key):
-    headers = {
-        "x-apisports-key": api_key,
-        "x-rapidapi-key": api_key
-    }
-    url = f"https://v3.football.api-sports.io/{endpoint}"
+    clean_key = api_key.strip()
+    if not clean_key:
+        return None, "La clave API está vacía."
+
+    # INTENTO 1: Servidor Directo API-Sports
+    url_direct = f"https://v3.football.api-sports.io/{endpoint}"
+    headers_direct = {"x-apisports-key": clean_key}
     
     try:
-        res = requests.get(url, headers=headers, timeout=8)
+        res = requests.get(url_direct, headers=headers_direct, timeout=6)
         if res.status_code == 200:
             data = res.json()
-            if data.get("errors") and len(data["errors"]) > 0:
-                return None, f"Error API: {data['errors']}"
-            return data.get("response", []), None
-        elif res.status_code == 401:
-            return None, "Clave API no autorizada (401)."
-        else:
-            return None, f"Error HTTP {res.status_code}"
+            errors = data.get("errors", {})
+            if not errors or (isinstance(errors, list) and len(errors) == 0):
+                return data.get("response", []), None
+    except Exception:
+        pass
+
+    # INTENTO 2: Servidor RapidAPI (Fallback para claves obtenidas en RapidAPI)
+    url_rapid = f"https://api-football-v1.p.rapidapi.com/v3/{endpoint}"
+    headers_rapid = {
+        "x-rapidapi-key": clean_key,
+        "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
+    }
+    
+    try:
+        res_r = requests.get(url_rapid, headers=headers_rapid, timeout=6)
+        if res_r.status_code == 200:
+            data_r = res_r.json()
+            errors_r = data_r.get("errors", {})
+            if not errors_r or (isinstance(errors_r, list) and len(errors_r) == 0):
+                return data_r.get("response", []), None
+            else:
+                return None, "Clave no válida o suscripción inactiva en la API."
+        elif res_r.status_code == 401:
+            return None, "Clave API rechazada por el servidor (401)."
     except Exception as e:
         return None, f"Error de conexión: {str(e)}"
+        
+    return None, "La clave API ingresada no fue reconocida."
 
 # ==============================================================================
 # NAVEGACIÓN Y CONTROL DE WIDGETS
