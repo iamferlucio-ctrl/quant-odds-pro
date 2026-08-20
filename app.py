@@ -165,7 +165,7 @@ def calcular_matriz(lambda_h, mu_a):
     p2 = float(np.sum(np.triu(matrix, 1)))
     return matrix, p1, px, p2
 
-def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, odd_1, odd_x, odd_2, p1, px, p2):
+def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, px, p2):
     p_home_0 = stats.poisson.pmf(0, lambda_h)
     p_away_0 = stats.poisson.pmf(0, mu_a)
     p_btts_no = p_home_0 + p_away_0 - (p_home_0 * p_away_0)
@@ -183,8 +183,8 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, odd_1
         ("Doble Oportunidad 1X", p1 + px, 1.0 / max(0.01, p1 + px)),
         ("Doble Oportunidad X2", p2 + px, 1.0 / max(0.01, p2 + px)),
         ("BTTS No", p_btts_no, 1.0 / max(0.01, p_btts_no)),
-        ("Under 10.5 Córners", prob_under_corners, 1.0 / max(0.01, prob_under_corners)),
-        ("Under 4.5 Tarjetas", prob_under_cards, 1.0 / max(0.01, prob_under_cards))
+        ("Under 9.5 Córners", prob_under_corners, 1.0 / max(0.01, prob_under_corners)),
+        ("Over 4.5 Tarjetas", prob_over_cards, 1.0 / max(0.01, prob_over_cards))
     ]
     candidatos.sort(key=lambda x: x[1], reverse=True)
     top_cobertura = candidatos[0]
@@ -197,7 +197,7 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, odd_1
     }
 
 # ==============================================================================
-# BASE DE DATOS EXTENDIDA (COPAS INTERNACIONALES, EUROPA Y LATINOAMÉRICA)
+# BASE DE DATOS COMPLETA Y EXTENDIDA
 # ==============================================================================
 
 DATABASE_COMPLETA = {
@@ -331,6 +331,18 @@ DATABASE_COMPLETA = {
     },
 
     # --- LIGAS DE LATINOAMÉRICA ---
+    "🇲🇽 Liga MX (México)": {
+        "Club América vs Chivas Guadalajara": {
+            "home": "Club América", "away": "Chivas",
+            "xg_home": 1.65, "xg_away": 1.10, "odd_1": 1.90, "odd_x": 3.40, "odd_2": 4.00,
+            "corners": 9.6, "cards": 4.8
+        },
+        "Tigres UANL vs CF Monterrey": {
+            "home": "Tigres UANL", "away": "CF Monterrey",
+            "xg_home": 1.40, "xg_away": 1.25, "odd_1": 2.25, "odd_x": 3.20, "odd_2": 3.20,
+            "corners": 9.3, "cards": 5.1
+        }
+    },
     "🇪🇨 LigaPro (Ecuador)": {
         "Barcelona SC vs Emelec": {
             "home": "Barcelona SC", "away": "Emelec",
@@ -378,18 +390,6 @@ DATABASE_COMPLETA = {
             "xg_home": 1.30, "xg_away": 1.05, "odd_1": 2.20, "odd_x": 3.10, "odd_2": 3.40,
             "corners": 9.0, "cards": 5.3
         }
-    },
-    "🇲🇽 Liga MX (México)": {
-        "Club América vs Chivas Guadalajara": {
-            "home": "Club América", "away": "Chivas",
-            "xg_home": 1.65, "xg_away": 1.10, "odd_1": 1.90, "odd_x": 3.40, "odd_2": 4.00,
-            "corners": 9.6, "cards": 4.8
-        },
-        "Tigres UANL vs CF Monterrey": {
-            "home": "Tigres UANL", "away": "CF Monterrey",
-            "xg_home": 1.40, "xg_away": 1.25, "odd_1": 2.25, "odd_x": 3.20, "odd_2": 3.20,
-            "corners": 9.3, "cards": 5.1
-        }
     }
 }
 
@@ -405,7 +405,7 @@ def fetch_api_leagues(api_key):
     return []
 
 # ==============================================================================
-# BARRA LATERAL CON MÁS OPCIONES
+# BARRA LATERAL CON NAVEGACIÓN COMPLETA
 # ==============================================================================
 
 st.sidebar.title("⚽ Navegación & Filtros")
@@ -465,16 +465,20 @@ ev_2 = (p2 * odd_2) - 1
 
 probs_1x2 = [p1, px, p2]
 names_1x2 = [f"Victoria {home_team}", "Empate (X)", f"Victoria {away_team}"]
-best_scen_idx = np.argmax(probs_1x2)
+best_scen_idx = int(np.argmax(probs_1x2))
 
+# MARCADOR FRECUENTE COHERENTE CON LA MATRIZ
 max_pos = np.unravel_index(np.argmax(matrix), matrix.shape)
 score_str = f"{max_pos[0]} - {max_pos[1]}"
 score_prob = matrix[max_pos] * 100
 
+# PROYECCIÓN UNDER 2.5 EXACTA
+prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
+
 line_str = f"{away_team} cubre +1.0" if p2 >= p1 else f"{home_team} cubre +1.0"
 fav_str = f"Favorito Mercado: {away_team}" if p2 >= p1 else f"Favorito Mercado: {home_team}"
 
-alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, odd_1, odd_x, odd_2, p1, px, p2)
+alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
 
 # ==============================================================================
 # DESPLIEGUE DASHBOARD
@@ -530,8 +534,8 @@ st.markdown(f'''
         </div>
         <div class="dash-card">
             <div class="dash-label">PROYECCIÓN DE GOLES</div>
-            <div class="dash-value">Under 2.0 Goles</div>
-            <div class="dash-sub">Probabilidad: {((1-p1-p2)*100 + 15):.1f}%</div>
+            <div class="dash-value">Under 2.5 Goles</div>
+            <div class="dash-sub">Probabilidad Exacta: {prob_under_25:.1f}%</div>
         </div>
         <div class="dash-card">
             <div class="dash-label">LÍNEA COBERTURA</div>
@@ -552,7 +556,7 @@ with col_m1:
 
 with col_m2:
     best_ev = max(ev_1, ev_x, ev_2)
-    ev_class = "metric-val-pos" if best_ev >= 0.025 else "metric-val-neg"
+    ev_class = "metric-val-pos" if best_ev > 0.0 else "metric-val-neg"
     st.markdown(f'''
         <div class="metric-card">
             <div class="metric-label">EV MERCADO 1X2</div>
@@ -562,9 +566,10 @@ with col_m2:
 
 st.markdown('<div class="section-title">📝 INTERPRETACIONAL Y GESTIÓN DE CAPITAL</div>', unsafe_allow_html=True)
 
-stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por Filtro Anti-Trampas)"
-if best_ev >= 0.025:
-    stake_recommendation = f"SUGERIDO (1.5% - Kelly Cauteloso sobre {names_1x2[best_scen_idx]})"
+if best_ev >= 0.01:
+    stake_recommendation = f"SUGERIDO (1.0% - Kelly Cauteloso sobre {names_1x2[best_scen_idx]})"
+else:
+    stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por Filtro Anti-Trampas)"
 
 st.markdown(f'''
     <div class="analysis-box">
