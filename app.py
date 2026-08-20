@@ -3,9 +3,10 @@ import numpy as np
 import scipy.stats as stats
 import plotly.graph_objects as go
 import requests
+import datetime
 
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL PRO COMPACTO)
 # ==============================================================================
 st.set_page_config(
     page_title="CuantiBet Pro Engine",
@@ -136,7 +137,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTOR MATEMÁTICO (SHIN, POISSON Y COBERTURA)
+# MOTOR MATEMÁTICO (SHIN, POISSON BIVARIADO Y COBERTURA ESTOCÁSTICA)
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
@@ -197,29 +198,34 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
     }
 
 # ==============================================================================
-# BASE DE DATOS MASIVA E ÍNTEGRA
+# BASE DE DATOS LOCAL MASIVA (RESPALDO INTEGRAL)
 # ==============================================================================
 
 DATABASE_COMPLETA = {
     # --- COPAS INTERCONTINENTALES E INTERNACIONALES ---
-    "🏆 UEFA Champions League": {
-        "Real Madrid vs Manchester City": {
-            "home": "Real Madrid", "away": "Manchester City",
-            "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75,
-            "corners": 10.2, "cards": 4.2
+    "🏆 CONMEBOL Sudamericana": {
+        "CSD Macará vs Santos FC": {
+            "home": "CSD Macará", "away": "Santos FC",
+            "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75,
+            "corners": 9.2, "cards": 5.4
         },
-        "Bayern München vs Paris Saint-Germain": {
-            "home": "Bayern München", "away": "PSG",
-            "xg_home": 1.85, "xg_away": 1.30, "odd_1": 2.00, "odd_x": 3.70, "odd_2": 3.40,
-            "corners": 9.8, "cards": 4.5
+        "LDU Quito vs Lanús": {
+            "home": "LDU Quito", "away": "Lanús",
+            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
+            "corners": 10.2, "cards": 5.2
         },
-        "Inter Milan vs FC Barcelona": {
-            "home": "Inter Milan", "away": "FC Barcelona",
-            "xg_home": 1.45, "xg_away": 1.40, "odd_1": 2.55, "odd_x": 3.40, "odd_2": 2.65,
-            "corners": 9.3, "cards": 4.8
+        "Montevideo City Torque vs CA Tigre BA": {
+            "home": "Montevideo City Torque", "away": "CA Tigre BA",
+            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
+            "corners": 9.1, "cards": 4.0
+        },
+        "Independiente Medellín vs Defensa y Justicia": {
+            "home": "DIM", "away": "Defensa y Justicia",
+            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
+            "corners": 9.8, "cards": 4.8
         }
     },
-    "🏆 Copa Libertadores": {
+    "🏆 CONMEBOL Libertadores": {
         "Flamengo vs Palmeiras": {
             "home": "Flamengo", "away": "Palmeiras",
             "xg_home": 1.55, "xg_away": 1.10, "odd_1": 2.10, "odd_x": 3.25, "odd_2": 3.60,
@@ -236,21 +242,21 @@ DATABASE_COMPLETA = {
             "corners": 8.9, "cards": 5.5
         }
     },
-    "🏆 Copa Sudamericana": {
-        "LDU Quito vs Lanús": {
-            "home": "LDU Quito", "away": "Lanús",
-            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
-            "corners": 10.2, "cards": 5.2
+    "🏆 UEFA Champions League": {
+        "Real Madrid vs Manchester City": {
+            "home": "Real Madrid", "away": "Manchester City",
+            "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75,
+            "corners": 10.2, "cards": 4.2
         },
-        "Montevideo City Torque vs CA Tigre BA": {
-            "home": "Montevideo City Torque", "away": "CA Tigre BA",
-            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
-            "corners": 9.1, "cards": 4.0
+        "Bayern München vs Paris Saint-Germain": {
+            "home": "Bayern München", "away": "PSG",
+            "xg_home": 1.85, "xg_away": 1.30, "odd_1": 2.00, "odd_x": 3.70, "odd_2": 3.40,
+            "corners": 9.8, "cards": 4.5
         },
-        "Independiente Medellín vs Defensa y Justicia": {
-            "home": "DIM", "away": "Defensa y Justicia",
-            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
-            "corners": 9.8, "cards": 4.8
+        "Inter Milan vs FC Barcelona": {
+            "home": "Inter Milan", "away": "FC Barcelona",
+            "xg_home": 1.45, "xg_away": 1.40, "odd_1": 2.55, "odd_x": 3.40, "odd_2": 2.65,
+            "corners": 9.3, "cards": 4.8
         }
     },
     "🏆 UEFA Europa League": {
@@ -393,19 +399,33 @@ DATABASE_COMPLETA = {
     }
 }
 
-@st.cache_data(ttl=600)
-def fetch_api_leagues(api_key):
-    headers = {"x-apisports-key": api_key}
+# ==============================================================================
+# FUNCIÓN DE CONSULTA API ROBUSTA (DIAGNÓSTICO EN TIEMPO REAL)
+# ==============================================================================
+
+def fetch_api_data(endpoint, api_key):
+    headers = {
+        "x-apisports-key": api_key,
+        "x-rapidapi-key": api_key
+    }
+    url = f"https://v3.football.api-sports.io/{endpoint}"
+    
     try:
-        res = requests.get("https://v3.football.api-sports.io/leagues?current=true", headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
-            return res.json().get("response", [])
-    except Exception:
-        pass
-    return []
+            data = res.json()
+            if data.get("errors") and len(data["errors"]) > 0:
+                return None, f"Error API: {data['errors']}"
+            return data.get("response", []), None
+        elif res.status_code == 401:
+            return None, "Clave API no autorizada (401)."
+        else:
+            return None, f"Error HTTP {res.status_code}"
+    except Exception as e:
+        return None, f"Error de conexión: {str(e)}"
 
 # ==============================================================================
-# NAVEGACIÓN Y CONTROL DE WIDGETS DE BARRA LATERAL
+# NAVEGACIÓN Y CONTROL DE WIDGETS
 # ==============================================================================
 
 st.sidebar.title("⚽ Navegación & Filtros")
@@ -415,31 +435,63 @@ match_data = None
 loaded_via_api = False
 
 if api_key:
-    leagues_api = fetch_api_leagues(api_key)
-    if leagues_api:
-        dict_leagues = {f"{item['league']['name']} ({item['country']['name']})": item['league']['id'] for item in leagues_api[:35]}
-        selected_l_name = st.sidebar.selectbox("🏆 Campeonato / Liga (API)", list(dict_leagues.keys()), key="select_api_league")
-        l_id = dict_leagues[selected_l_name]
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    
+    with st.sidebar.spinner("Cargando cartelera de hoy..."):
+        fixtures_today, err = fetch_api_data(f"fixtures?date={today_str}", api_key)
+    
+    if err:
+        st.sidebar.error(f"❌ {err}")
+    elif fixtures_today is not None and len(fixtures_today) > 0:
+        dict_fixtures = {
+            f"{f['league']['name']}: {f['teams']['home']['name']} vs {f['teams']['away']['name']}": f 
+            for f in fixtures_today
+        }
         
-        try:
-            res_f = requests.get(f"https://v3.football.api-sports.io/fixtures?league={l_id}&next=10", headers={"x-apisports-key": api_key}, timeout=5)
-            fixtures = res_f.json().get("response", []) if res_f.status_code == 200 else []
-            if fixtures:
-                f_dict = {f"{f['teams']['home']['name']} vs {f['teams']['away']['name']}": f for f in fixtures}
-                selected_f_name = st.sidebar.selectbox("📅 Partido por Jugar", list(f_dict.keys()), key="select_api_match")
-                f_raw = f_dict[selected_f_name]
-                match_data = {
-                    "home": f_raw['teams']['home']['name'],
-                    "away": f_raw['teams']['away']['name'],
-                    "xg_home": 1.45, "xg_away": 1.10,
-                    "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
-                    "corners": 9.5, "cards": 4.5
-                }
-                loaded_via_api = True
-            else:
-                st.sidebar.warning("⚠️ Sin partidos próximos en API. Mostrando base local.")
-        except Exception:
-            st.sidebar.error("❌ Fallo en consulta API. Mostrando base local.")
+        selected_match_label = st.sidebar.selectbox(
+            "📅 Partidos de Hoy (Tiempo Real)", 
+            list(dict_fixtures.keys()), 
+            key="select_api_today_match"
+        )
+        
+        f_raw = dict_fixtures[selected_match_label]
+        
+        match_data = {
+            "home": f_raw['teams']['home']['name'],
+            "away": f_raw['teams']['away']['name'],
+            "xg_home": 1.45,
+            "xg_away": 1.10,
+            "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
+            "corners": 9.5, "cards": 4.5
+        }
+        loaded_via_api = True
+        st.sidebar.success(f"🟢 {len(fixtures_today)} partidos en vivo/hoy ({today_str}).")
+    else:
+        st.sidebar.info(f"ℹ️ Buscando próximos partidos globales...")
+        fixtures_next, err_next = fetch_api_data("fixtures?next=15", api_key)
+        
+        if fixtures_next:
+            dict_fixtures = {
+                f"{f['league']['name']}: {f['teams']['home']['name']} vs {f['teams']['away']['name']}": f 
+                for f in fixtures_next
+            }
+            selected_match_label = st.sidebar.selectbox(
+                "📅 Próximos Partidos (API)", 
+                list(dict_fixtures.keys()), 
+                key="select_api_next_match"
+            )
+            f_raw = dict_fixtures[selected_match_label]
+            match_data = {
+                "home": f_raw['teams']['home']['name'],
+                "away": f_raw['teams']['away']['name'],
+                "xg_home": 1.45, "xg_away": 1.10,
+                "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
+                "corners": 9.5, "cards": 4.5
+            }
+            loaded_via_api = True
+            st.sidebar.success(f"🟢 {len(fixtures_next)} próximos partidos cargados.")
+        else:
+            st.sidebar.warning("⚠️ Sin conexión API activa. Mostrando base de respaldo.")
 
 if not loaded_via_api:
     selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()), key="select_local_league")
@@ -476,7 +528,7 @@ max_pos = np.unravel_index(np.argmax(matrix), matrix.shape)
 score_str = f"{max_pos[0]} - {max_pos[1]}"
 score_prob = matrix[max_pos] * 100
 
-# Proyección Under 2.5 exacta sumando matriz
+# Proyección Under 2.5 exacta sumando matriz estocástica
 prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
 
 line_str = f"{away_team} cubre +1.0" if p2 >= p1 else f"{home_team} cubre +1.0"
@@ -485,7 +537,7 @@ fav_str = f"Favorito Mercado: {away_team}" if p2 >= p1 else f"Favorito Mercado: 
 alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
 
 # ==============================================================================
-# RENDERIZADO DEL DASHBOARD
+# RENDERIZADO DEL DASHBOARD PRINCIPAL
 # ==============================================================================
 
 st.markdown(f'''
@@ -579,7 +631,7 @@ st.markdown(f'''
     <div class="analysis-box">
         <b>💡 Diagnóstico del Algoritmo:</b><br>
         • El escenario dominador de la tendencia 1X2 es <b>{names_1x2[best_scen_idx]} ({probs_1x2[best_scen_idx]*100:.1f}%)</b>.<br>
-        • El marcador exacto de mayor probabilidad individual dentro de la matriz estocástica es <b>{score_str}</b> con un <b>{score_prob:.1f}%</b> de probabilidad.<br>
+        • El marcador exacto de mayor probabilidad individual dentro de la matriz estocástica es <b>{score_str}</b> con un <b>{score_prob:.1f}%</b> de densidad.<br>
         • En los mercados secundarios, la opción con mayor protección estocástica es <b>{alt_markets["cobertura"][0]}</b> con un <b>{alt_markets["cobertura"][1]*100:.1f}%</b>.<br>
         • <b>Recomendación de Gestión:</b> Stake {stake_recommendation}.
     </div>
