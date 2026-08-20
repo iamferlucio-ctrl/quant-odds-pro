@@ -2,704 +2,440 @@ import streamlit as st
 import numpy as np
 import scipy.stats as stats
 import plotly.graph_objects as go
+import plotly.express as px
 import requests
-import datetime
 
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL PRO COMPACTO)
+# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS COMPLETOS
 # ==============================================================================
 st.set_page_config(
-    page_title="CuantiBet Pro Engine",
-    page_icon="⚽",
+    page_title="Terminal Quant v9.0 - Full Engine",
+    page_icon="🏟️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+PLOTLY_CONFIG = {
+    'displayModeBar': False,
+    'scrollZoom': False,
+    'doubleClick': False,
+    'showAxisDragHandles': False
+}
+
 st.markdown("""
-    <style>
-    .stApp { background-color: #060911; }
+<style>
+    .stApp { 
+        background-color: #0a0d14; 
+        color: #d1d5db; 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+    }
     
-    .hero-card {
-        background: linear-gradient(180deg, #0F172A 0%, #0B1120 100%);
-        border: 1px solid #1E293B;
+    /* Header Principal */
+    .header-card {
+        background: linear-gradient(135deg, #131b2e 0%, #0d1322 100%);
+        border: 1px solid #1e293b;
         border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .header-title { font-size: 1.5em; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; }
+    .header-subtitle { font-size: 0.75em; font-weight: 700; color: #64748b; letter-spacing: 1.5px; margin-top: 4px; text-transform: uppercase; }
+
+    /* Grilla de Métricas Móvil (2 Columnas Rígidas) */
+    .quant-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+        margin-bottom: 20px !important;
+    }
+    .quant-card {
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
         padding: 14px;
         text-align: center;
-        margin-bottom: 12px;
     }
-    .hero-title {
-        font-size: 1.15rem !important;
-        font-weight: 800;
-        color: #F8FAFC;
-        margin-bottom: 2px;
-    }
-    .hero-sub {
-        font-size: 0.65rem;
-        color: #64748B;
-        letter-spacing: 0.8px;
-        text-transform: uppercase;
-        font-weight: 700;
-    }
-    
-    .section-title {
-        font-size: 0.78rem;
-        font-weight: 800;
-        color: #38BDF8;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        margin: 14px 0 8px 0;
-    }
-    
-    .grid-2x2 {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 10px;
-    }
-    
-    .dash-card {
-        background: #0F172A;
-        border: 1px solid #1E293B;
+    .quant-card-full {
+        grid-column: span 2 !important;
+        background-color: #111827;
+        border: 1px solid #1f2937;
         border-radius: 10px;
-        padding: 10px 12px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        min-height: 88px;
-    }
-    .dash-card-highlight {
-        background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%);
-        border: 1px solid #6366F1;
-        border-radius: 10px;
-        padding: 10px 12px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        min-height: 88px;
-    }
-    .dash-label {
-        font-size: 0.62rem;
-        font-weight: 700;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.4px;
-    }
-    .dash-value {
-        font-size: 1.0rem;
-        font-weight: 800;
-        color: #F8FAFC;
-        margin: 3px 0 2px 0;
-        line-height: 1.2;
-    }
-    .dash-sub {
-        font-size: 0.68rem;
-        font-weight: 600;
-        color: #38BDF8;
-    }
-    
-    .analysis-box {
-        background: #0B132B;
-        border-left: 4px solid #38BDF8;
-        border-radius: 6px;
-        padding: 12px;
-        margin-top: 10px;
-        font-size: 0.8rem;
-        color: #CBD5E1;
-        line-height: 1.4;
-    }
-    
-    .metric-card {
-        background: #0D1527;
-        border: 1px solid #1E293B;
-        border-radius: 8px;
-        padding: 8px;
+        padding: 14px;
         text-align: center;
     }
-    .metric-label {
-        font-size: 0.60rem;
-        font-weight: 700;
-        color: #64748B;
-        text-transform: uppercase;
+    .quant-label { font-size: 0.72em; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; }
+    .quant-val-negative { font-size: 1.4em; font-weight: 800; color: #ef4444; margin-top: 4px; }
+    .quant-val-positive { font-size: 1.4em; font-weight: 800; color: #10b981; margin-top: 4px; }
+    .quant-val-neutral { font-size: 1.4em; font-weight: 800; color: #f59e0b; margin-top: 4px; }
+    .quant-val-white { font-size: 1.4em; font-weight: 800; color: #f9fafb; margin-top: 4px; }
+
+    /* Módulo de Orden Aprobada / Rechazada */
+    .execution-approved {
+        background-color: rgba(6, 78, 59, 0.25);
+        border: 1px solid #059669;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 24px;
     }
-    .metric-val-neg {
-        font-size: 1.05rem;
-        font-weight: 800;
-        color: #EF4444;
-        font-family: monospace;
+    .execution-rejected {
+        background-color: rgba(127, 29, 29, 0.25);
+        border: 1px solid #dc2626;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 24px;
     }
-    .metric-val-pos {
-        font-size: 1.05rem;
-        font-weight: 800;
-        color: #10B981;
-        font-family: monospace;
+    .badge-approved { background-color: #10b981; color: #022c22; font-weight: 800; font-size: 0.75em; padding: 4px 12px; border-radius: 20px; text-transform: uppercase; }
+    .badge-rejected { background-color: #ef4444; color: #450a0a; font-weight: 800; font-size: 0.75em; padding: 4px 12px; border-radius: 20px; text-transform: uppercase; }
+    .execution-title { font-size: 1.2em; font-weight: 800; color: #ffffff; margin-top: 10px; }
+    .execution-desc { font-size: 0.85em; color: #9ca3af; margin-top: 6px; line-height: 1.5; }
+
+    /* Cajas Informativas Extra */
+    .info-box {
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 10px;
+        font-size: 0.85em;
     }
-    </style>
+</style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTOR MATEMÁTICO (SHIN, POISSON BIVARIADO Y COBERTURA ESTOCÁSTICA)
+# 2. BANCO DE DATOS DE LIGAS Y CONEXIÓN CON THE ODDS API
 # ==============================================================================
-
-def desmarginar_shin(odds, max_iter=100, tol=1e-6):
-    odds = np.array(odds, dtype=float)
-    if np.any(odds <= 1.0): return np.array([1/3, 1/3, 1/3]), 0.0
-    implied = 1.0 / odds
-    beta = np.sum(implied)
-    if abs(beta - 1.0) < 1e-5: return implied, 0.0
-    z = 0.0
-    for _ in range(max_iter):
-        f = np.sum(np.sqrt(z**2 + 4 * (1 - z) * (implied**2) / beta)) - 2.0
-        if abs(f) < tol: break
-        f_prime = np.sum((z - 2 * (implied**2) / beta) / np.sqrt(z**2 + 4 * (1 - z) * (implied**2) / beta))
-        if f_prime == 0: break
-        z = z - f / f_prime
-        z = max(0.0, min(0.99, z))
-    p_shin = (np.sqrt(z**2 + 4 * (1 - z) * (implied**2) / beta) - z) / (2 * (1 - z))
-    return p_shin / np.sum(p_shin), z
-
-def calcular_matriz(lambda_h, mu_a):
-    p_home = stats.poisson.pmf(np.arange(7), lambda_h)
-    p_away = stats.poisson.pmf(np.arange(7), mu_a)
-    matrix = np.outer(p_home, p_away)
-    p1 = float(np.sum(np.tril(matrix, -1)))
-    px = float(np.sum(np.diag(matrix)))
-    p2 = float(np.sum(np.triu(matrix, 1)))
-    return matrix, p1, px, p2
-
-def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, px, p2):
-    p_home_0 = stats.poisson.pmf(0, lambda_h)
-    p_away_0 = stats.poisson.pmf(0, mu_a)
-    p_btts_no = p_home_0 + p_away_0 - (p_home_0 * p_away_0)
-    p_btts_yes = 1.0 - p_btts_no
-    
-    line_corners = 9.5
-    prob_under_corners = stats.poisson.cdf(line_corners, corners_avg)
-    prob_over_corners = 1.0 - prob_under_corners
-    
-    line_cards = 4.5
-    prob_under_cards = stats.poisson.cdf(line_cards, cards_avg)
-    prob_over_cards = 1.0 - prob_under_cards
-    
-    candidatos = [
-        ("Doble Oportunidad 1X", p1 + px, 1.0 / max(0.01, p1 + px)),
-        ("Doble Oportunidad X2", p2 + px, 1.0 / max(0.01, p2 + px)),
-        ("BTTS No", p_btts_no, 1.0 / max(0.01, p_btts_no)),
-        ("Under 9.5 Córners", prob_under_corners, 1.0 / max(0.01, prob_under_corners)),
-        ("Over 4.5 Tarjetas", prob_over_cards, 1.0 / max(0.01, prob_over_cards))
-    ]
-    candidatos.sort(key=lambda x: x[1], reverse=True)
-    top_cobertura = candidatos[0]
-    
-    return {
-        "btts": ("SÍ", p_btts_yes, 1/p_btts_yes) if p_btts_yes >= 0.50 else ("NO", p_btts_no, 1/p_btts_no),
-        "corners": (f"Under {line_corners}", prob_under_corners, 1/prob_under_corners) if prob_under_corners >= 0.50 else (f"Over {line_corners}", prob_over_corners, 1/prob_over_corners),
-        "cards": (f"Under {line_cards}", prob_under_cards, 1/prob_under_cards) if prob_under_cards >= 0.50 else (f"Over {line_cards}", prob_over_cards, 1/prob_over_cards),
-        "cobertura": top_cobertura
-    }
-
-# ==============================================================================
-# BASE DE DATOS LOCAL MASIVA (RESPALDO INTEGRAL)
-# ==============================================================================
-
-DATABASE_COMPLETA = {
-    # --- COPAS INTERCONTINENTALES E INTERNACIONALES ---
-    "🏆 CONMEBOL Sudamericana": {
-        "CSD Macará vs Santos FC": {
-            "home": "CSD Macará", "away": "Santos FC",
-            "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75,
-            "corners": 9.2, "cards": 5.4
-        },
-        "LDU Quito vs Lanús": {
-            "home": "LDU Quito", "away": "Lanús",
-            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
-            "corners": 10.2, "cards": 5.2
-        },
-        "Montevideo City Torque vs CA Tigre BA": {
-            "home": "Montevideo City Torque", "away": "CA Tigre BA",
-            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
-            "corners": 9.1, "cards": 4.0
-        },
-        "Independiente Medellín vs Defensa y Justicia": {
-            "home": "DIM", "away": "Defensa y Justicia",
-            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
-            "corners": 9.8, "cards": 4.8
-        }
-    },
-    "🏆 CONMEBOL Libertadores": {
-        "Flamengo vs Palmeiras": {
-            "home": "Flamengo", "away": "Palmeiras",
-            "xg_home": 1.55, "xg_away": 1.10, "odd_1": 2.10, "odd_x": 3.25, "odd_2": 3.60,
-            "corners": 10.0, "cards": 6.0
-        },
-        "River Plate vs Independiente del Valle": {
-            "home": "River Plate", "away": "IDV",
-            "xg_home": 1.80, "xg_away": 0.90, "odd_1": 1.70, "odd_x": 3.60, "odd_2": 5.25,
-            "corners": 9.4, "cards": 4.5
-        },
-        "Peñarol vs Atlético Mineiro": {
-            "home": "Peñarol", "away": "Atlético Mineiro",
-            "xg_home": 1.15, "xg_away": 1.35, "odd_1": 2.90, "odd_x": 3.10, "odd_2": 2.50,
-            "corners": 8.9, "cards": 5.5
-        }
-    },
-    "🏆 UEFA Champions League": {
-        "Real Madrid vs Manchester City": {
-            "home": "Real Madrid", "away": "Manchester City",
-            "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75,
-            "corners": 10.2, "cards": 4.2
-        },
-        "Bayern München vs Paris Saint-Germain": {
-            "home": "Bayern München", "away": "PSG",
-            "xg_home": 1.85, "xg_away": 1.30, "odd_1": 2.00, "odd_x": 3.70, "odd_2": 3.40,
-            "corners": 9.8, "cards": 4.5
-        },
-        "Inter Milan vs FC Barcelona": {
-            "home": "Inter Milan", "away": "FC Barcelona",
-            "xg_home": 1.45, "xg_away": 1.40, "odd_1": 2.55, "odd_x": 3.40, "odd_2": 2.65,
-            "corners": 9.3, "cards": 4.8
-        }
-    },
-    "🏆 UEFA Europa League": {
-        "AS Roma vs FC Porto": {
-            "home": "AS Roma", "away": "FC Porto",
-            "xg_home": 1.40, "xg_away": 1.15, "odd_1": 2.20, "odd_x": 3.30, "odd_2": 3.30,
-            "corners": 9.5, "cards": 5.0
-        },
-        "Athletic Club vs Ajax": {
-            "home": "Athletic Club", "away": "Ajax",
-            "xg_home": 1.60, "xg_away": 1.05, "odd_1": 1.90, "odd_x": 3.50, "odd_2": 4.00,
-            "corners": 10.1, "cards": 4.1
-        }
-    },
-    "🏆 Concacaf Champions Cup": {
-        "Club América vs Inter Miami": {
-            "home": "Club América", "away": "Inter Miami",
-            "xg_home": 1.75, "xg_away": 1.30, "odd_1": 2.05, "odd_x": 3.50, "odd_2": 3.40,
-            "corners": 9.9, "cards": 4.6
-        },
-        "Tigres UANL vs Columbus Crew": {
-            "home": "Tigres UANL", "away": "Columbus Crew",
-            "xg_home": 1.50, "xg_away": 1.00, "odd_1": 1.95, "odd_x": 3.40, "odd_2": 3.80,
-            "corners": 9.2, "cards": 4.3
-        }
-    },
-
-    # --- LIGAS DE EUROPA ---
-    "🇬🇧 Premier League (Inglaterra)": {
-        "Arsenal vs Chelsea": {
-            "home": "Arsenal", "away": "Chelsea",
-            "xg_home": 1.90, "xg_away": 1.15, "odd_1": 1.85, "odd_x": 3.75, "odd_2": 4.20,
-            "corners": 10.5, "cards": 3.8
-        },
-        "Manchester City vs Liverpool": {
-            "home": "Manchester City", "away": "Liverpool",
-            "xg_home": 1.85, "xg_away": 1.40, "odd_1": 2.00, "odd_x": 3.60, "odd_2": 3.60,
-            "corners": 10.8, "cards": 4.1
-        }
-    },
-    "🇪🇸 LaLiga (España)": {
-        "Real Madrid vs FC Barcelona": {
-            "home": "Real Madrid", "away": "FC Barcelona",
-            "xg_home": 1.75, "xg_away": 1.50, "odd_1": 2.15, "odd_x": 3.50, "odd_2": 3.20,
-            "corners": 9.7, "cards": 5.0
-        },
-        "Atlético de Madrid vs Sevilla FC": {
-            "home": "Atlético de Madrid", "away": "Sevilla FC",
-            "xg_home": 1.60, "xg_away": 0.85, "odd_1": 1.75, "odd_x": 3.50, "odd_2": 4.80,
-            "corners": 9.1, "cards": 5.6
-        }
-    },
-    "🇮🇹 Serie A (Italia)": {
-        "Juventus vs AC Milan": {
-            "home": "Juventus", "away": "AC Milan",
-            "xg_home": 1.35, "xg_away": 1.20, "odd_1": 2.30, "odd_x": 3.15, "odd_2": 3.20,
-            "corners": 9.0, "cards": 4.9
-        },
-        "Napoli vs Inter Milan": {
-            "home": "Napoli", "away": "Inter Milan",
-            "xg_home": 1.40, "xg_away": 1.45, "odd_1": 2.60, "odd_x": 3.30, "odd_2": 2.70,
-            "corners": 9.6, "cards": 4.7
-        }
-    },
-    "🇩🇪 Bundesliga (Alemania)": {
-        "Bayer Leverkusen vs Borussia Dortmund": {
-            "home": "Bayer Leverkusen", "away": "Borussia Dortmund",
-            "xg_home": 2.05, "xg_away": 1.40, "odd_1": 1.85, "odd_x": 3.90, "odd_2": 3.80,
-            "corners": 10.4, "cards": 3.9
-        }
-    },
-    "🇫🇷 Ligue 1 (Francia)": {
-        "Olympique de Marseille vs AS Monaco": {
-            "home": "Marseille", "away": "AS Monaco",
-            "xg_home": 1.50, "xg_away": 1.35, "odd_1": 2.25, "odd_x": 3.40, "odd_2": 3.10,
-            "corners": 9.4, "cards": 4.4
-        }
-    },
-
-    # --- LIGAS DE LATINOAMÉRICA ---
-    "🇲🇽 Liga MX (México)": {
-        "Club América vs Chivas Guadalajara": {
-            "home": "Club América", "away": "Chivas",
-            "xg_home": 1.65, "xg_away": 1.10, "odd_1": 1.90, "odd_x": 3.40, "odd_2": 4.00,
-            "corners": 9.6, "cards": 4.8
-        },
-        "Tigres UANL vs CF Monterrey": {
-            "home": "Tigres UANL", "away": "CF Monterrey",
-            "xg_home": 1.40, "xg_away": 1.25, "odd_1": 2.25, "odd_x": 3.20, "odd_2": 3.20,
-            "corners": 9.3, "cards": 5.1
-        }
-    },
-    "🇪🇨 LigaPro (Ecuador)": {
-        "Barcelona SC vs Emelec": {
-            "home": "Barcelona SC", "away": "Emelec",
-            "xg_home": 1.50, "xg_away": 1.05, "odd_1": 2.05, "odd_x": 3.20, "odd_2": 3.70,
-            "corners": 9.5, "cards": 5.8
-        },
-        "Independiente del Valle vs Aucas": {
-            "home": "IDV", "away": "Aucas",
-            "xg_home": 1.95, "xg_away": 0.80, "odd_1": 1.55, "odd_x": 3.90, "odd_2": 6.00,
-            "corners": 10.1, "cards": 4.2
-        },
-        "LDU Quito vs Universidad Católica": {
-            "home": "LDU Quito", "away": "U. Católica",
-            "xg_home": 1.70, "xg_away": 1.10, "odd_1": 1.85, "odd_x": 3.40, "odd_2": 4.20,
-            "corners": 9.9, "cards": 5.1
-        }
-    },
-    "🇦🇷 Liga Profesional (Argentina)": {
-        "Boca Juniors vs River Plate": {
-            "home": "Boca Juniors", "away": "River Plate",
-            "xg_home": 1.10, "xg_away": 1.15, "odd_1": 2.70, "odd_x": 2.95, "odd_2": 2.80,
-            "corners": 8.8, "cards": 6.5
-        },
-        "Racing Club vs Independiente": {
-            "home": "Racing Club", "away": "Independiente",
-            "xg_home": 1.35, "xg_away": 0.95, "odd_1": 2.15, "odd_x": 3.10, "odd_2": 3.60,
-            "corners": 9.2, "cards": 5.9
-        }
-    },
-    "🇧🇷 Brasileirão Serie A (Brasil)": {
-        "Palmeiras vs São Paulo": {
-            "home": "Palmeiras", "away": "São Paulo",
-            "xg_home": 1.60, "xg_away": 0.90, "odd_1": 1.80, "odd_x": 3.40, "odd_2": 4.50,
-            "corners": 10.3, "cards": 5.4
-        },
-        "Flamengo vs Fluminense": {
-            "home": "Flamengo", "away": "Fluminense",
-            "xg_home": 1.65, "xg_away": 1.05, "odd_1": 1.90, "odd_x": 3.30, "odd_2": 4.10,
-            "corners": 9.7, "cards": 5.7
-        }
-    },
-    "🇨🇴 Liga BetPlay (Colombia)": {
-        "Millonarios vs Atlético Nacional": {
-            "home": "Millonarios", "away": "Atlético Nacional",
-            "xg_home": 1.30, "xg_away": 1.05, "odd_1": 2.20, "odd_x": 3.10, "odd_2": 3.40,
-            "corners": 9.0, "cards": 5.3
-        }
-    }
+LIGAS_DISPONIBLES = {
+    "Copa Libertadores": "soccer_conmebol_copa_libertadores",
+    "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
+    "Premier League (Inglaterra)": "soccer_epl",
+    "LaLiga (España)": "soccer_spain_la_liga",
+    "Serie A (Italia)": "soccer_italy_serie_a",
+    "Bundesliga (Alemania)": "soccer_germany_bundesliga",
+    "Ligue 1 (Francia)": "soccer_france_ligue_one",
+    "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
+    "Brasileirão (Brasil)": "soccer_brazil_campeonato",
+    "MLS (EE.UU.)": "soccer_usa_mls"
 }
 
-# ==============================================================================
-# FUNCIÓN API ROBUSTA CON SOPORTE COMPATIBLE RAPIDAPI Y API-SPORTS DIRECTO
-# ==============================================================================
-
-def fetch_api_data(endpoint, api_key):
-    clean_key = api_key.strip()
-    if not clean_key:
-        return None, "La clave API está vacía."
-
-    # INTENTO 1: Servidor Directo API-Sports
-    url_direct = f"https://v3.football.api-sports.io/{endpoint}"
-    headers_direct = {"x-apisports-key": clean_key}
-    
-    try:
-        res = requests.get(url_direct, headers=headers_direct, timeout=6)
-        if res.status_code == 200:
-            data = res.json()
-            errors = data.get("errors", {})
-            if not errors or (isinstance(errors, list) and len(errors) == 0):
-                return data.get("response", []), None
-    except Exception:
-        pass
-
-    # INTENTO 2: Servidor RapidAPI (Fallback para claves obtenidas en RapidAPI)
-    url_rapid = f"https://api-football-v1.p.rapidapi.com/v3/{endpoint}"
-    headers_rapid = {
-        "x-rapidapi-key": clean_key,
-        "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
+def obtener_partidos_odds_api(api_key, sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+    params = {
+        'apiKey': api_key,
+        'regions': 'eu,us',
+        'markets': 'h2h,spreads,totals',
+        'oddsFormat': 'decimal'
     }
-    
     try:
-        res_r = requests.get(url_rapid, headers=headers_rapid, timeout=6)
-        if res_r.status_code == 200:
-            data_r = res_r.json()
-            errors_r = data_r.get("errors", {})
-            if not errors_r or (isinstance(errors_r, list) and len(errors_r) == 0):
-                return data_r.get("response", []), None
-            else:
-                return None, "Clave no válida o suscripción inactiva en la API."
-        elif res_r.status_code == 401:
-            return None, "Clave API rechazada por el servidor (401)."
+        res = requests.get(url, params=params, timeout=10)
+        if res.status_code == 200:
+            return res.json(), None
+        else:
+            return None, f"Error API ({res.status_code}): {res.json().get('message', 'Clave inválida o límite superado')}"
     except Exception as e:
         return None, f"Error de conexión: {str(e)}"
-        
-    return None, "La clave API ingresada no fue reconocida."
 
-# ==============================================================================
-# NAVEGACIÓN Y CONTROL DE WIDGETS
-# ==============================================================================
-
-st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Consulta partidos en tiempo real vía API-Football")
-
-match_data = None
-loaded_via_api = False
-
-if api_key:
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
+def extraer_mercados(partido_data):
+    local = partido_data.get('home_team', 'Local')
+    visita = partido_data.get('away_team', 'Visitante')
     
-    with st.sidebar.spinner("Cargando cartelera de hoy..."):
-        fixtures_today, err = fetch_api_data(f"fixtures?date={today_str}", api_key)
+    c1, cx, c2 = 2.35, 3.30, 2.95
+    cover, cunder = 2.05, 1.75
+    ah_line, c_ah1 = -0.25, 1.95
+
+    bookmakers = partido_data.get('bookmakers', [])
+    if bookmakers:
+        bm = bookmakers[0]
+        for m in bm.get('markets', []):
+            if m['key'] == 'h2h':
+                for o in m['outcomes']:
+                    if o['name'] == local: c1 = float(o['price'])
+                    elif o['name'] == visita: c2 = float(o['price'])
+                    elif o['name'] == 'Draw': cx = float(o['price'])
+            elif m['key'] == 'totals':
+                for o in m['outcomes']:
+                    if o['name'] == 'Over': cover = float(o['price'])
+                    elif o['name'] == 'Under': cunder = float(o['price'])
+            elif m['key'] == 'spreads':
+                for o in m['outcomes']:
+                    if o['name'] == local:
+                        ah_line = float(o.get('point', -0.25))
+                        c_ah1 = float(o['price'])
+
+    return {
+        "local": local,
+        "visitante": visita,
+        "c1": c1, "cx": cx, "c2": c2,
+        "cover": cover, "cunder": cunder,
+        "ah_local": ah_line, "c_ah1": c_ah1
+    }
+
+# ==============================================================================
+# 3. MOTOR MATEMÁTICO COMPLETO: SHIN, DIXON-COLES Y KELLY
+# ==============================================================================
+def estimar_shin(cuotas_1x2):
+    """Algoritmo numérico para desmarginalizar cuotas y extraer la probabilidad limpia y el factor Z de Shin."""
+    c = np.array(cuotas_1x2, dtype=float)
+    if np.any(c <= 1.0): 
+        return np.array([0.333, 0.333, 0.334]), 0.0
     
-    if err:
-        st.sidebar.error(f"❌ {err}")
-    elif fixtures_today is not None and len(fixtures_today) > 0:
-        dict_fixtures = {
-            f"{f['league']['name']}: {f['teams']['home']['name']} vs {f['teams']['away']['name']}": f 
-            for f in fixtures_today
-        }
+    inv_c = 1.0 / c
+    sum_inv = np.sum(inv_c)
+    margin = sum_inv - 1.0
+    
+    # Búsqueda iterativa del factor z de Shin
+    z = max(0.0001, margin * 0.18)
+    for _ in range(10):
+        p_raw = (np.sqrt(z**2 + 4 * (1 - z) * (inv_c / sum_inv)) - z) / (2 * (1 - z))
+        z = max(0.0001, np.sum(p_raw) - 1.0 + z)
         
-        selected_match_label = st.sidebar.selectbox(
-            "📅 Partidos de Hoy (Tiempo Real)", 
-            list(dict_fixtures.keys()), 
-            key="select_api_today_match"
-        )
-        
-        f_raw = dict_fixtures[selected_match_label]
-        
-        match_data = {
-            "home": f_raw['teams']['home']['name'],
-            "away": f_raw['teams']['away']['name'],
-            "xg_home": 1.45,
-            "xg_away": 1.10,
-            "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
-            "corners": 9.5, "cards": 4.5
-        }
-        loaded_via_api = True
-        st.sidebar.success(f"🟢 {len(fixtures_today)} partidos en vivo/hoy ({today_str}).")
-    else:
-        st.sidebar.info(f"ℹ️ Buscando próximos partidos globales...")
-        fixtures_next, err_next = fetch_api_data("fixtures?next=15", api_key)
-        
-        if fixtures_next:
-            dict_fixtures = {
-                f"{f['league']['name']}: {f['teams']['home']['name']} vs {f['teams']['away']['name']}": f 
-                for f in fixtures_next
-            }
-            selected_match_label = st.sidebar.selectbox(
-                "📅 Próximos Partidos (API)", 
-                list(dict_fixtures.keys()), 
-                key="select_api_next_match"
-            )
-            f_raw = dict_fixtures[selected_match_label]
-            match_data = {
-                "home": f_raw['teams']['home']['name'],
-                "away": f_raw['teams']['away']['name'],
-                "xg_home": 1.45, "xg_away": 1.10,
-                "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
-                "corners": 9.5, "cards": 4.5
-            }
-            loaded_via_api = True
-            st.sidebar.success(f"🟢 {len(fixtures_next)} próximos partidos cargados.")
-        else:
-            st.sidebar.warning("⚠️ Sin conexión API activa. Mostrando base de respaldo.")
+    p_norm = p_raw / np.sum(p_raw)
+    return p_norm, z
 
-if not loaded_via_api:
-    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()), key="select_local_league")
-    matches = DATABASE_COMPLETA[selected_league]
-    selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()), key="select_local_match")
-    match_data = matches[selected_match]
+def modelo_dixon_coles(lambda_h, mu_a, rho=-0.13, max_goles=5):
+    """Calcula la matriz completa de probabilidades bivariada (0-5 goles por equipo) con parámetro tau."""
+    mat = np.zeros((max_goles + 1, max_goles + 1))
+    for i in range(max_goles + 1):
+        for j in range(max_goles + 1):
+            p_i = stats.poisson.pmf(i, lambda_h)
+            p_j = stats.poisson.pmf(j, mu_a)
+            
+            if i == 0 and j == 0: tau = 1.0 - (lambda_h * mu_a * rho)
+            elif i == 0 and j == 1: tau = 1.0 + (lambda_h * rho)
+            elif i == 1 and j == 0: tau = 1.0 + (mu_a * rho)
+            elif i == 1 and j == 1: tau = 1.0 - rho
+            else: tau = 1.0
+            
+            mat[i, j] = max(0.0, p_i * p_j * tau)
+            
+    mat = mat / np.sum(mat) # Normalización matricial
+    
+    p_home = np.sum(np.tril(mat, -1))
+    p_draw = np.sum(np.diag(mat))
+    p_away = np.sum(np.triu(mat, 1))
+    p_over = np.sum([mat[i, j] for i in range(max_goles+1) for j in range(max_goles+1) if i + j > 2.5])
+    p_under = 1.0 - p_over
+    
+    return p_home, p_draw, p_away, p_over, p_under, mat
 
-home_team = match_data["home"]
-away_team = match_data["away"]
-xg_h = match_data["xg_home"]
-xg_a = match_data["xg_away"]
-odd_1 = match_data["odd_1"]
-odd_x = match_data["odd_x"]
-odd_2 = match_data["odd_2"]
-corners_avg = match_data.get("corners", 9.5)
-cards_avg = match_data.get("cards", 4.5)
+def calcular_kelly(prob, cuota, fraccion=0.25):
+    """Calcula el porcentaje de banca a arriesgar mediante el Criterio de Kelly Fraccional."""
+    b = cuota - 1.0
+    q = 1.0 - prob
+    f_kelly = (b * prob - q) / b
+    return max(0.0, f_kelly * fraccion) * 100
 
 # ==============================================================================
-# EJECUCIÓN DEL MOTOR QUANT
+# 4. CONTROLES Y SELECCIÓN EN BARRA LATERAL
 # ==============================================================================
-matrix, p1, px, p2 = calcular_matriz(xg_h, xg_a)
-p_shin, z_val = desmarginar_shin([odd_1, odd_x, odd_2])
+st.sidebar.markdown("### 🗝️ THE ODDS API KEY")
+odds_api_key = st.sidebar.text_input("API Key:", value="1a927e0f762a52540fe079d963ed2460", type="password")
 
-ev_1 = (p1 * odd_1) - 1
-ev_x = (px * odd_x) - 1
-ev_2 = (p2 * odd_2) - 1
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🏆 SELECCIÓN DE TORNEO Y PARTIDO")
+liga_nombre = st.sidebar.selectbox("Torneo:", list(LIGAS_DISPONIBLES.keys()))
+sport_key_selected = LIGAS_DISPONIBLES[liga_nombre]
 
-probs_1x2 = [p1, px, p2]
-names_1x2 = [f"Victoria {home_team}", "Empate (X)", f"Victoria {away_team}"]
-best_scen_idx = int(np.argmax(probs_1x2))
+partidos_raw, error_api = obtener_partidos_odds_api(odds_api_key, sport_key_selected)
 
-# Moda de la matriz global (Marcador más frecuente absoluto)
-max_pos = np.unravel_index(np.argmax(matrix), matrix.shape)
-score_str = f"{max_pos[0]} - {max_pos[1]}"
-score_prob = matrix[max_pos] * 100
-
-# Proyección Under 2.5 exacta sumando matriz estocástica
-prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
-
-line_str = f"{away_team} cubre +1.0" if p2 >= p1 else f"{home_team} cubre +1.0"
-fav_str = f"Favorito Mercado: {away_team}" if p2 >= p1 else f"Favorito Mercado: {home_team}"
-
-alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
-
-# ==============================================================================
-# RENDERIZADO DEL DASHBOARD PRINCIPAL
-# ==============================================================================
-
-st.markdown(f'''
-    <div class="hero-card">
-        <div class="hero-title">🏟️ {home_team} vs {away_team}</div>
-        <div class="hero-sub">Evaluación Cuantitativa y Filtrado Anti-Trampas de Mercado</div>
-    </div>
-''', unsafe_allow_html=True)
-
-st.markdown('<div class="section-title">🎯 PANEL DE MERCADOS PROBABLES & OPCIONES INFRAVALORADAS</div>', unsafe_allow_html=True)
-
-st.markdown(f'''
-    <div class="grid-2x2">
-        <div class="dash-card">
-            <div class="dash-label">⚽ AMBOS ANOTAN (BTTS)</div>
-            <div class="dash-value">{alt_markets["btts"][0]} ({alt_markets["btts"][1]*100:.1f}%)</div>
-            <div class="dash-sub">Cuota Justa: @{alt_markets["btts"][2]:.2f}</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">🚩 TIROS DE ESQUINA</div>
-            <div class="dash-value">{alt_markets["corners"][0]}</div>
-            <div class="dash-sub">Prob: {alt_markets["corners"][1]*100:.1f}% | @{alt_markets["corners"][2]:.2f}</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">🟨 AMONESTACIONES / TARJETAS</div>
-            <div class="dash-value">{alt_markets["cards"][0]}</div>
-            <div class="dash-sub">Prob: {alt_markets["cards"][1]*100:.1f}% | @{alt_markets["cards"][2]:.2f}</div>
-        </div>
-        <div class="dash-card-highlight">
-            <div class="dash-label">💎 ALTA COBERTURA (MENOR RIESGO)</div>
-            <div class="dash-value">{alt_markets["cobertura"][0]}</div>
-            <div class="dash-sub">Éxito Estocástico: {alt_markets["cobertura"][1]*100:.1f}%</div>
-        </div>
-    </div>
-''', unsafe_allow_html=True)
-
-st.markdown('<div class="section-title">🔮 TENDENCIA DIRECTIONAL DE MERCADO (LO MÁS PROBABLE)</div>', unsafe_allow_html=True)
-
-st.markdown(f'''
-    <div class="grid-2x2">
-        <div class="dash-card">
-            <div class="dash-label">ESCENARIO MÁS PROBABLE</div>
-            <div class="dash-value">{names_1x2[best_scen_idx]}</div>
-            <div class="dash-sub">Prob. Implícita: {probs_1x2[best_scen_idx]*100:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">MARCADOR MÁS FRECUENTE</div>
-            <div class="dash-value">{score_str}</div>
-            <div class="dash-sub">Probabilidad Absoluta: {score_prob:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">PROYECCIÓN DE GOLES</div>
-            <div class="dash-value">Under 2.5 Goles</div>
-            <div class="dash-sub">Probabilidad Exacta: {prob_under_25:.1f}%</div>
-        </div>
-        <div class="dash-card">
-            <div class="dash-label">LÍNEA COBERTURA</div>
-            <div class="dash-value">{line_str}</div>
-            <div class="dash-sub">{fav_str}</div>
-        </div>
-    </div>
-''', unsafe_allow_html=True)
-
-col_m1, col_m2 = st.columns(2)
-with col_m1:
-    st.markdown('''
-        <div class="metric-card">
-            <div class="metric-label">EV HÁNDICAP ASIÁTICO</div>
-            <div class="metric-val-neg">-0.7%</div>
-        </div>
-    ''', unsafe_allow_html=True)
-
-with col_m2:
-    best_ev = max(ev_1, ev_x, ev_2)
-    ev_class = "metric-val-pos" if best_ev > 0.0 else "metric-val-neg"
-    st.markdown(f'''
-        <div class="metric-card">
-            <div class="metric-label">EV MERCADO 1X2</div>
-            <div class="{ev_class}">{best_ev*100:+.1f}%</div>
-        </div>
-    ''', unsafe_allow_html=True)
-
-st.markdown('<div class="section-title">📝 INTERPRETACIÓN Y GESTIÓN DE CAPITAL</div>', unsafe_allow_html=True)
-
-if best_ev >= 0.01:
-    stake_recommendation = f"SUGERIDO (1.0% Bankroll - Kelly Cauteloso sobre {names_1x2[best_scen_idx]})"
+if error_api:
+    st.sidebar.error(error_api)
+    p = {"local": "Macará", "visitante": "Santos", "c1": 2.33, "cx": 3.40, "c2": 2.90, "cover": 2.10, "cunder": 1.70, "ah_local": -0.25, "c_ah1": 1.90}
 else:
-    stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por Filtro Anti-Trampas)"
+    if partidos_raw:
+        opciones_partidos = [f"{m.get('home_team')} vs {m.get('away_team')}" for m in partidos_raw]
+        idx_p = st.sidebar.selectbox("Evento en Vivo:", range(len(opciones_partidos)), format_func=lambda x: opciones_partidos[x])
+        p = extraer_mercados(partidos_raw[idx_p])
+    else:
+        st.sidebar.warning("No se encontraron eventos activos próximos para este torneo.")
+        p = {"local": "Macará", "visitante": "Santos", "c1": 2.33, "cx": 3.40, "c2": 2.90, "cover": 2.10, "cunder": 1.70, "ah_local": -0.25, "c_ah1": 1.90}
 
-st.markdown(f'''
-    <div class="analysis-box">
-        <b>💡 Diagnóstico del Algoritmo:</b><br>
-        • El escenario dominador de la tendencia 1X2 es <b>{names_1x2[best_scen_idx]} ({probs_1x2[best_scen_idx]*100:.1f}%)</b>.<br>
-        • El marcador exacto de mayor probabilidad individual dentro de la matriz estocástica es <b>{score_str}</b> con un <b>{score_prob:.1f}%</b> de densidad.<br>
-        • En los mercados secundarios, la opción con mayor protección estocástica es <b>{alt_markets["cobertura"][0]}</b> con un <b>{alt_markets["cobertura"][1]*100:.1f}%</b>.<br>
-        • <b>Recomendación de Gestión:</b> Stake {stake_recommendation}.
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚙️ AJUSTE MANUAL DE CUOTAS")
+c_1 = st.sidebar.number_input(f"1 ({p['local']}):", value=float(p['c1']), step=0.01)
+c_x = st.sidebar.number_input("X (Empate):", value=float(p['cx']), step=0.01)
+c_2 = st.sidebar.number_input(f"2 ({p['visitante']}):", value=float(p['c2']), step=0.01)
+c_over = st.sidebar.number_input("Over 2.5 Goles:", value=float(p['cover']), step=0.01)
+c_under = st.sidebar.number_input("Under 2.5 Goles:", value=float(p['cunder']), step=0.01)
+ah_line = st.sidebar.number_input("Línea Hándicap Asiático:", value=float(p['ah_local']), step=0.25)
+c_ah1 = st.sidebar.number_input("Cuota Hándicap Local:", value=float(p['c_ah1']), step=0.01)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 💰 GESTIÓN DE RISK / BANKROLL")
+bankroll = st.sidebar.number_input("Bankroll Total ($):", value=1000.0, step=50.0)
+kelly_frac = st.sidebar.slider("Fracción de Kelly:", 0.1, 1.0, 0.25, step=0.05)
+
+# ==============================================================================
+# 5. CÁLCULOS CUANTITATIVOS Y ANÁLISIS COMPLETO
+# ==============================================================================
+probs_shin, insider_z = estimar_shin([c_1, c_x, c_2])
+
+# Reverse Engineering de xG
+total_xg_est = 2.60
+lambda_h = (probs_shin[0] * total_xg_est * 1.08) / (probs_shin[0] + probs_shin[2] + 1e-5)
+mu_a = (probs_shin[2] * total_xg_est) / (probs_shin[0] + probs_shin[2] + 1e-5)
+
+# Modelo Dixon-Coles
+p_dc_1, p_dc_x, p_dc_2, p_dc_over, p_dc_under, mat_dc = modelo_dixon_coles(lambda_h, mu_a)
+
+# Expected Values (+EV / -EV)
+ev_1 = (p_dc_1 * c_1 - 1.0) * 100
+ev_x = (p_dc_x * c_x - 1.0) * 100
+ev_2 = (p_dc_2 * c_2 - 1.0) * 100
+ev_1x2 = max(ev_1, ev_x, ev_2)
+
+ev_o = (p_dc_over * c_over - 1.0) * 100
+ev_u = (p_dc_under * c_under - 1.0) * 100
+ev_ou = max(ev_o, ev_u)
+
+prob_ah_cover = p_dc_1 + (p_dc_x * 0.5 if abs(ah_line) == 0.25 else 0)
+ev_handicap = (prob_ah_cover * c_ah1 - 1.0) * 100
+
+max_ev_global = max(ev_1x2, ev_ou, ev_handicap)
+ejecucion_permitida = max_ev_global > 0
+
+# Determinación de la mejor opción cuantitativa
+opciones_ev = [
+    ("1X2 Local", ev_1, p_dc_1, c_1),
+    ("1X2 Empate", ev_x, p_dc_x, c_x),
+    ("1X2 Visitante", ev_2, p_dc_2, c_2),
+    ("Over 2.5 Goles", ev_o, p_dc_over, c_over),
+    ("Under 2.5 Goles", ev_u, p_dc_under, c_under),
+    (f"Hándicap {ah_line} Local", ev_handicap, prob_ah_cover, c_ah1)
+]
+mejor_apuesta = max(opciones_ev, key=lambda x: x[1])
+
+pct_stake_kelly = calcular_kelly(mejor_apuesta[2], mejor_apuesta[3], fraccion=kelly_frac)
+monto_stake = (pct_stake_kelly / 100.0) * bankroll
+
+# ==============================================================================
+# 6. INTERFAZ Y RENDERIZADO VISUAL
+# ==============================================================================
+
+# Header Principal
+st.markdown(f"""
+<div class="header-card">
+    <div class="header-title">🏟️ {p['local']} vs {p['visitante']}</div>
+    <div class="header-subtitle">Terminal de Inteligencia Cuantitativa</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Grilla de 5 Métricas Clave (2x2 + Card Ancha)
+st.markdown(f"""
+<div class="quant-grid">
+    <div class="quant-card">
+        <div class="quant-label">EV HÁNDICAP</div>
+        <div class="{'quant-val-positive' if ev_handicap > 0 else 'quant-val-negative'}">{ev_handicap:+.1f}%</div>
     </div>
-''', unsafe_allow_html=True)
+    <div class="quant-card">
+        <div class="quant-label">EV MERCADO 1X2</div>
+        <div class="{'quant-val-positive' if ev_1x2 > 0 else 'quant-val-negative'}">{ev_1x2:+.1f}%</div>
+    </div>
+    <div class="quant-card">
+        <div class="quant-label">EV OVER/UNDER</div>
+        <div class="{'quant-val-positive' if ev_ou > 0 else 'quant-val-negative'}">{ev_ou:+.1f}%</div>
+    </div>
+    <div class="quant-card">
+        <div class="quant-label">XG CASA IMPL.</div>
+        <div class="quant-val-white">{lambda_h:.2f} / {mu_a:.2f}</div>
+    </div>
+    <div class="quant-card-full">
+        <div class="quant-label">SHIN (INSIDER Z)</div>
+        <div class="quant-val-neutral">{insider_z:.4f}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">📊 COMPARATIVA DE PROBABILIDADES Y MATRIZ DE MARCADORES</div>', unsafe_allow_html=True)
+# Módulo de Decisión y Ejecución de Órdenes
+if ejecucion_permitida:
+    st.markdown(f"""
+    <div class="execution-approved">
+        <span class="badge-approved">EJECUCIÓN PERMITIDA</span>
+        <div class="execution-title">Orden Aprobada (+EV): {mejor_apuesta[0]}</div>
+        <div class="execution-desc">
+            Auditoría cuantitativa completada mediante desmarginalización de Shin y simulación bivariada de Dixon-Coles.<br>
+            • Ventaja Esperada (+EV): <b>+{mejor_apuesta[1]:.2f}%</b><br>
+            • Cuota Recomendada: <b>{mejor_apuesta[3]:.2f}</b> (Probabilidad Real: <b>{mejor_apuesta[2]*100:.1f}%</b>)<br>
+            • Asignación de Banca (Kelly {kelly_frac}x): <b>{pct_stake_kelly:.2f}% (${monto_stake:.2f})</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown(f"""
+    <div class="execution-rejected">
+        <span class="badge-rejected">EJECUCIÓN RECHAZADA</span>
+        <div class="execution-title">Orden Bloqueada (-EV)</div>
+        <div class="execution-desc">
+            El cruce entre el modelo Dixon-Coles y las cuotas de-marginadas de Shin no arroja ventaja matemática sobre ningún mercado disponible.<br>
+            • Máximo EV detectado: <b>{max_ev_global:+.2f}%</b><br>
+            • Recomendación: <b>Abstenerse de operar / Conservar Capital</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-col_g1, col_g2 = st.columns(2)
+# Gráficos y Tablas Complementarias
+tab1, tab2, tab3 = st.tabs(["📊 Probabilidades & Densidad", "🎯 Matriz de Marcadores Exactos", "📋 Desglose Detallado"])
 
-h_short = home_team[:3].upper() if len(home_team) >= 3 else home_team.upper()
-a_short = away_team[:3].upper() if len(away_team) >= 3 else away_team.upper()
+with tab1:
+    col_f1, col_f2 = st.columns(2)
+    
+    with col_f1:
+        fig_bar = go.Figure(data=[
+            go.Bar(name='Modelo (Dixon-Coles)', x=['1', 'X', '2'], y=[p_dc_1*100, p_dc_x*100, p_dc_2*100], marker_color='#10b981'),
+            go.Bar(name='Mercado (Shin)', x=['1', 'X', '2'], y=[probs_shin[0]*100, probs_shin[1]*100, probs_shin[2]*100], marker_color='#3b82f6')
+        ])
+        fig_bar.update_layout(
+            title="Comparativa 1X2 (%)",
+            barmode='group',
+            height=250,
+            margin=dict(l=10, r=10, t=30, b=10),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#9ca3af', size=11),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_bar, use_container_width=True, config=PLOTLY_CONFIG)
 
-with col_g1:
-    fig_bar = go.Figure(data=[
-        go.Bar(name='Modelo', x=[h_short, "EMP", a_short], y=[p1*100, px*100, p2*100], marker_color='#38BDF8', texttemplate='%{y:.1f}%', textposition='inside'),
-        go.Bar(name='Shin', x=[h_short, "EMP", a_short], y=[p_shin[0]*100, p_shin[1]*100, p_shin[2]*100], marker_color='#6366F1', texttemplate='%{y:.1f}%', textposition='inside')
-    ])
-    fig_bar.update_layout(
-        barmode='group',
-        height=250,
-        margin=dict(l=10, r=10, t=15, b=25),
+    with col_f2:
+        x_g = np.linspace(0, 6, 100)
+        y_g = stats.norm.pdf(x_g, loc=(lambda_h + mu_a), scale=1.0)
+        fig_density = go.Figure(go.Scatter(x=x_g, y=y_g, mode='lines', fill='tozeroy', line=dict(color='#10b981')))
+        fig_density.add_vline(x=2.5, line_dash="dash", line_color="#ef4444", annotation_text="Línea 2.5", annotation_position="top right")
+        fig_density.update_layout(
+            title="Distribución de Goles Esperados",
+            height=250,
+            margin=dict(l=10, r=10, t=30, b=10),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#9ca3af', size=11)
+        )
+        st.plotly_chart(fig_density, use_container_width=True, config=PLOTLY_CONFIG)
+
+with tab2:
+    fig_mat = px.imshow(
+        mat_dc * 100,
+        labels=dict(x=f"Goles {p['visitante']}", y=f"Goles {p['local']}", color="Prob %"),
+        x=[0, 1, 2, 3, 4, 5],
+        y=[0, 1, 2, 3, 4, 5],
+        color_continuous_scale="Viridis",
+        text_auto=".1f"
+    )
+    fig_mat.update_layout(
+        title="Matriz Bivariada de Marcadores Exactos (%)",
+        height=320,
+        margin=dict(l=10, r=10, t=30, b=10),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color="#E2E8F0", size=10),
-        showlegend=False,
-        xaxis=dict(fixedrange=True),
-        yaxis=dict(fixedrange=True, showgrid=False)
+        font=dict(color='#9ca3af')
     )
-    st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+    st.plotly_chart(fig_mat, use_container_width=True, config=PLOTLY_CONFIG)
 
-with col_g2:
-    fig_hm = go.Figure(data=go.Heatmap(
-        z=np.round(matrix[:4, :4] * 100, 1),
-        x=["0", "1", "2", "3"],
-        y=["0", "1", "2", "3"],
-        colorscale=[[0, "#0F172A"], [1, "#0284C7"]],
-        showscale=False,
-        text=np.round(matrix[:4, :4] * 100, 1),
-        texttemplate="%{text:.1f}%"
-    ))
-    fig_hm.update_layout(
-        height=250,
-        margin=dict(l=10, r=10, t=15, b=25),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color="#E2E8F0", size=10),
-        xaxis=dict(title="Goles Visita", fixedrange=True),
-        yaxis=dict(title="Goles Local", autorange="reversed", fixedrange=True)
-    )
-    st.plotly_chart(fig_hm, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+with tab3:
+    st.markdown("#### Tabla Desglosada de Expected Value (+EV)")
+    data_tabla = {
+        "Mercado": [op[0] for op in opciones_ev],
+        "Cuota Mercado": [f"{op[3]:.2f}" for op in opciones_ev],
+        "Prob. Modelo": [f"{op[2]*100:.1f}%" for op in opciones_ev],
+        "Expected Value (EV)": [f"{op[1]:+.2f}%" for op in opciones_ev]
+    }
+    st.dataframe(data_tabla, use_container_width=True)
