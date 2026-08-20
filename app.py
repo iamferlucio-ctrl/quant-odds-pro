@@ -136,7 +136,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTOR MATEMÁTICO (SHIN, POISSON CDF/PMF Y COBERTURA)
+# MOTOR MATEMÁTICO (SHIN, POISSON Y COBERTURA)
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
@@ -197,7 +197,7 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
     }
 
 # ==============================================================================
-# BASE DE DATOS COMPLETA Y EXTENDIDA
+# BASE DE DATOS MASIVA E ÍNTEGRA
 # ==============================================================================
 
 DATABASE_COMPLETA = {
@@ -405,19 +405,20 @@ def fetch_api_leagues(api_key):
     return []
 
 # ==============================================================================
-# BARRA LATERAL CON NAVEGACIÓN COMPLETA
+# NAVEGACIÓN Y CONTROL DE WIDGETS DE BARRA LATERAL
 # ==============================================================================
 
 st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Consulta partidos en tiempo real")
+api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Consulta partidos en tiempo real vía API-Football")
 
 match_data = None
+loaded_via_api = False
 
 if api_key:
     leagues_api = fetch_api_leagues(api_key)
     if leagues_api:
         dict_leagues = {f"{item['league']['name']} ({item['country']['name']})": item['league']['id'] for item in leagues_api[:35]}
-        selected_l_name = st.sidebar.selectbox("🏆 Campeonato / Liga", list(dict_leagues.keys()))
+        selected_l_name = st.sidebar.selectbox("🏆 Campeonato / Liga (API)", list(dict_leagues.keys()), key="select_api_league")
         l_id = dict_leagues[selected_l_name]
         
         try:
@@ -425,7 +426,7 @@ if api_key:
             fixtures = res_f.json().get("response", []) if res_f.status_code == 200 else []
             if fixtures:
                 f_dict = {f"{f['teams']['home']['name']} vs {f['teams']['away']['name']}": f for f in fixtures}
-                selected_f_name = st.sidebar.selectbox("📅 Partido por Jugar", list(f_dict.keys()))
+                selected_f_name = st.sidebar.selectbox("📅 Partido por Jugar", list(f_dict.keys()), key="select_api_match")
                 f_raw = f_dict[selected_f_name]
                 match_data = {
                     "home": f_raw['teams']['home']['name'],
@@ -434,13 +435,16 @@ if api_key:
                     "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
                     "corners": 9.5, "cards": 4.5
                 }
+                loaded_via_api = True
+            else:
+                st.sidebar.warning("⚠️ Sin partidos próximos en API. Mostrando base local.")
         except Exception:
-            pass
+            st.sidebar.error("❌ Fallo en consulta API. Mostrando base local.")
 
-if not match_data:
-    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()))
+if not loaded_via_api:
+    selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()), key="select_local_league")
     matches = DATABASE_COMPLETA[selected_league]
-    selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()))
+    selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()), key="select_local_match")
     match_data = matches[selected_match]
 
 home_team = match_data["home"]
@@ -454,7 +458,7 @@ corners_avg = match_data.get("corners", 9.5)
 cards_avg = match_data.get("cards", 4.5)
 
 # ==============================================================================
-# EJECUCIÓN DEL MOTOR
+# EJECUCIÓN DEL MOTOR QUANT
 # ==============================================================================
 matrix, p1, px, p2 = calcular_matriz(xg_h, xg_a)
 p_shin, z_val = desmarginar_shin([odd_1, odd_x, odd_2])
@@ -467,12 +471,12 @@ probs_1x2 = [p1, px, p2]
 names_1x2 = [f"Victoria {home_team}", "Empate (X)", f"Victoria {away_team}"]
 best_scen_idx = int(np.argmax(probs_1x2))
 
-# MARCADOR FRECUENTE COHERENTE CON LA MATRIZ
+# Moda de la matriz global (Marcador más frecuente absoluto)
 max_pos = np.unravel_index(np.argmax(matrix), matrix.shape)
 score_str = f"{max_pos[0]} - {max_pos[1]}"
 score_prob = matrix[max_pos] * 100
 
-# PROYECCIÓN UNDER 2.5 EXACTA
+# Proyección Under 2.5 exacta sumando matriz
 prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
 
 line_str = f"{away_team} cubre +1.0" if p2 >= p1 else f"{home_team} cubre +1.0"
@@ -481,7 +485,7 @@ fav_str = f"Favorito Mercado: {away_team}" if p2 >= p1 else f"Favorito Mercado: 
 alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
 
 # ==============================================================================
-# DESPLIEGUE DASHBOARD
+# RENDERIZADO DEL DASHBOARD
 # ==============================================================================
 
 st.markdown(f'''
@@ -528,9 +532,9 @@ st.markdown(f'''
             <div class="dash-sub">Prob. Implícita: {probs_1x2[best_scen_idx]*100:.1f}%</div>
         </div>
         <div class="dash-card">
-            <div class="dash-label">MARCADOR FRECUENTE</div>
+            <div class="dash-label">MARCADOR MÁS FRECUENTE</div>
             <div class="dash-value">{score_str}</div>
-            <div class="dash-sub">Probabilidad: {score_prob:.1f}%</div>
+            <div class="dash-sub">Probabilidad Absoluta: {score_prob:.1f}%</div>
         </div>
         <div class="dash-card">
             <div class="dash-label">PROYECCIÓN DE GOLES</div>
@@ -564,18 +568,19 @@ with col_m2:
         </div>
     ''', unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">📝 INTERPRETACIONAL Y GESTIÓN DE CAPITAL</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📝 INTERPRETACIÓN Y GESTIÓN DE CAPITAL</div>', unsafe_allow_html=True)
 
 if best_ev >= 0.01:
-    stake_recommendation = f"SUGERIDO (1.0% - Kelly Cauteloso sobre {names_1x2[best_scen_idx]})"
+    stake_recommendation = f"SUGERIDO (1.0% Bankroll - Kelly Cauteloso sobre {names_1x2[best_scen_idx]})"
 else:
     stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por Filtro Anti-Trampas)"
 
 st.markdown(f'''
     <div class="analysis-box">
         <b>💡 Diagnóstico del Algoritmo:</b><br>
-        • El escenario de mayor probabilidad matemática es <b>{names_1x2[best_scen_idx]} ({probs_1x2[best_scen_idx]*100:.1f}%)</b> con un marcador proyectado de <b>{score_str}</b>.<br>
-        • En los mercados secundarios, la opción con mayor protección estocástica es <b>{alt_markets["cobertura"][0]}</b> con un <b>{alt_markets["cobertura"][1]*100:.1f}%</b> de probabilidad implícita.<br>
+        • El escenario dominador de la tendencia 1X2 es <b>{names_1x2[best_scen_idx]} ({probs_1x2[best_scen_idx]*100:.1f}%)</b>.<br>
+        • El marcador exacto de mayor probabilidad individual dentro de la matriz estocástica es <b>{score_str}</b> con un <b>{score_prob:.1f}%</b> de probabilidad.<br>
+        • En los mercados secundarios, la opción con mayor protección estocástica es <b>{alt_markets["cobertura"][0]}</b> con un <b>{alt_markets["cobertura"][1]*100:.1f}%</b>.<br>
         • <b>Recomendación de Gestión:</b> Stake {stake_recommendation}.
     </div>
 ''', unsafe_allow_html=True)
