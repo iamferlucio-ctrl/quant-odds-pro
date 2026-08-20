@@ -5,10 +5,10 @@ import plotly.graph_objects as go
 import requests
 
 # ==============================================================================
-# 1. CONFIGURACIÓN Y ESTILOS
+# 1. CONFIGURACIÓN Y ESTILOS CSS
 # ==============================================================================
 st.set_page_config(
-    page_title="Terminal Quant v13.0 - Value Detector",
+    page_title="Terminal Quant v14.0 - Full API & Engine",
     page_icon="🏟️",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -46,9 +46,69 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. MOTOR DE CÁLCULO MEJORADO
+# 2. CONEXIÓN API Y EXTRACCIÓN DE MERCADOS EN TIEMPO REAL
+# ==============================================================================
+LIGAS_DISPONIBLES = {
+    "Copa Libertadores": "soccer_conmebol_copa_libertadores",
+    "Copa Sudamericana": "soccer_conmebol_copa_sudamericana",
+    "Premier League (Inglaterra)": "soccer_epl",
+    "LaLiga (España)": "soccer_spain_la_liga",
+    "Serie A (Italia)": "soccer_italy_serie_a",
+    "Bundesliga (Alemania)": "soccer_germany_bundesliga",
+    "Liga Profesional (Argentina)": "soccer_argentina_primera_division",
+    "Brasileirão (Brasil)": "soccer_brazil_campeonato"
+}
+
+def obtener_partidos_odds_api(api_key, sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+    params = {'apiKey': api_key, 'regions': 'eu,us', 'markets': 'h2h,spreads,totals', 'oddsFormat': 'decimal'}
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        if res.status_code == 200:
+            return res.json(), None
+        return None, f"Error API ({res.status_code})"
+    except Exception as e:
+        return None, str(e)
+
+def extraer_mercados(partido_data):
+    local = partido_data.get('home_team', 'Local')
+    visita = partido_data.get('away_team', 'Visitante')
+    
+    c1, cx, c2 = 2.20, 3.10, 3.00
+    cover, cunder = 1.95, 1.85
+    ah_line, c_ah1 = -0.25, 1.90
+
+    bookmakers = partido_data.get('bookmakers', [])
+    if bookmakers:
+        bm = bookmakers[0]
+        for m in bm.get('markets', []):
+            if m['key'] == 'h2h':
+                for o in m['outcomes']:
+                    if o['name'] == local: c1 = float(o['price'])
+                    elif o['name'] == visita: c2 = float(o['price'])
+                    elif o['name'] == 'Draw': cx = float(o['price'])
+            elif m['key'] == 'totals':
+                for o in m['outcomes']:
+                    if o['name'] == 'Over': cover = float(o['price'])
+                    elif o['name'] == 'Under': cunder = float(o['price'])
+            elif m['key'] == 'spreads':
+                for o in m['outcomes']:
+                    if o['name'] == local:
+                        ah_line = float(o.get('point', -0.25))
+                        c_ah1 = float(o['price'])
+
+    return {
+        "local": local, "visitante": visita,
+        "c1": c1, "cx": cx, "c2": c2,
+        "cover": cover, "cunder": cunder,
+        "ah_local": ah_line, "c_ah1": c_ah1
+    }
+
+# ==============================================================================
+# 3. MOTOR MATEMÁTICO AVANZADO
 # ==============================================================================
 def estimar_shin(cuotas_1x2):
+    """Desmarginalización Cuantitativa por Modelo de Shin (Convergencia Suave)"""
     c = np.array(cuotas_1x2, dtype=float)
     if np.any(c <= 1.0): return np.array([0.333, 0.333, 0.334]), 0.0
     inv_c = 1.0 / c
@@ -66,6 +126,7 @@ def estimar_shin(cuotas_1x2):
     return p_final, z
 
 def modelo_dixon_coles(lambda_h, mu_a, rho=-0.13, max_goles=7):
+    """Simulación Bivariada Dixon & Coles con Corrección Tau"""
     mat = np.zeros((max_goles + 1, max_goles + 1))
     for i in range(max_goles + 1):
         for j in range(max_goles + 1):
@@ -86,6 +147,7 @@ def modelo_dixon_coles(lambda_h, mu_a, rho=-0.13, max_goles=7):
     return p_home, p_draw, p_away, p_over_25, 1.0 - p_over_25, mat
 
 def calcular_handicap_asiatico(mat_goles, linea_ah):
+    """Motor de Resolución Exacta de Hándicaps Asiáticos"""
     max_goles = mat_goles.shape[0] - 1
     prob_win, prob_half_win, prob_push = 0.0, 0.0, 0.0
     for i in range(max_goles + 1):
@@ -98,21 +160,23 @@ def calcular_handicap_asiatico(mat_goles, linea_ah):
     return prob_win + (prob_half_win * 0.5)
 
 def simular_auxiliares(lambda_h, mu_a):
+    """Simulación Poisson para Córners y Tarjetas"""
     lambda_c_h, lambda_c_a = max(2.5, lambda_h * 3.1), max(1.8, mu_a * 2.7)
     tot_corners = lambda_c_h + lambda_c_a
     c_h, c_a = stats.poisson.pmf(np.arange(0, 21), lambda_c_h), stats.poisson.pmf(np.arange(0, 21), lambda_c_a)
     mat_c = np.outer(c_h, c_a)
     
-    p_c_85 = np.sum([mat_c[i, j] for i in range(21) for j in range(21) if i + j > 8.5])
-    p_c_95 = np.sum([mat_c[i, j] for i in range(21) for j in range(21) if i + j > 9.5])
+    p_c85 = np.sum([mat_c[i, j] for i in range(21) for j in range(21) if i + j > 8.5])
+    p_c95 = np.sum([mat_c[i, j] for i in range(21) for j in range(21) if i + j > 9.5])
     
     lambda_cards = max(3.0, (lambda_h + mu_a) * 1.4 + 1.2)
-    p_t_35 = 1.0 - stats.poisson.cdf(3, lambda_cards)
-    p_t_45 = 1.0 - stats.poisson.cdf(4, lambda_cards)
+    p_t35 = 1.0 - stats.poisson.cdf(3, lambda_cards)
+    p_t45 = 1.0 - stats.poisson.cdf(4, lambda_cards)
 
-    return tot_corners, p_c_85, p_c_95, lambda_cards, p_t_35, p_t_45
+    return tot_corners, p_c85, p_c95, lambda_cards, p_t35, p_t45
 
 def kelly_criterion(prob, cuota, fraction=0.25):
+    """Criterio de Kelly Fraccionado Sin Redondeo Nulo"""
     b = cuota - 1.0
     if b <= 0: return 0.0
     q = 1.0 - prob
@@ -120,22 +184,45 @@ def kelly_criterion(prob, cuota, fraction=0.25):
     return max(0.0, f * fraction)
 
 # ==============================================================================
-# 3. ENTRADA DE DATOS (BARRA LATERAL)
+# 4. BARRA LATERAL (CONEXIÓN API + ENTRADA MANUAL)
 # ==============================================================================
-st.sidebar.markdown("### ⚙️ PARÁMETROS DEL EVENTO")
-p_local = st.sidebar.text_input("Local:", "Macará")
-p_visita = st.sidebar.text_input("Visitante:", "Santos")
+st.sidebar.markdown("### 🔑 API & NAVEGACIÓN")
+odds_api_key = st.sidebar.text_input("The Odds API Key:", value="1a927e0f762a52540fe079d963ed2460", type="password")
 
-c_1 = st.sidebar.number_input(f"Cuota 1 ({p_local}):", value=2.20, step=0.01)
-c_x = st.sidebar.number_input("Cuota X (Empate):", value=3.10, step=0.01)
-c_2 = st.sidebar.number_input(f"Cuota 2 ({p_visita}):", value=3.00, step=0.01)
-c_over = st.sidebar.number_input("Cuota Over 2.5 Goles:", value=1.95, step=0.01)
-c_under = st.sidebar.number_input("Cuota Under 2.5 Goles:", value=1.85, step=0.01)
-ah_line = st.sidebar.number_input("Línea Hándicap Asiático:", value=-0.25, step=0.25)
-c_ah1 = st.sidebar.number_input("Cuota Hándicap Local:", value=1.90, step=0.01)
+liga_nombre = st.sidebar.selectbox("Torneo / Liga:", list(LIGAS_DISPONIBLES.keys()))
+sport_key = LIGAS_DISPONIBLES[liga_nombre]
+
+partidos_raw, error_api = obtener_partidos_odds_api(odds_api_key, sport_key)
+
+if partidos_raw and len(partidos_raw) > 0:
+    opciones_partidos = [f"{m.get('home_team')} vs {m.get('away_team')}" for m in partidos_raw]
+    idx_partido = st.sidebar.selectbox("Seleccionar Evento:", range(len(opciones_partidos)), format_func=lambda x: opciones_partidos[x])
+    p_data = extraer_mercados(partidos_raw[idx_partido])
+else:
+    if error_api:
+        st.sidebar.warning(f"API no disponible ({error_api}). Usando valores por defecto.")
+    p_data = {
+        "local": "Macará", "visitante": "Santos",
+        "c1": 2.20, "cx": 3.10, "c2": 3.00,
+        "cover": 1.95, "cunder": 1.85,
+        "ah_local": -0.25, "c_ah1": 1.90
+    }
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚙️ AJUSTE DE CUOTAS")
+p_local = st.sidebar.text_input("Equipo Local:", p_data['local'])
+p_visita = st.sidebar.text_input("Equipo Visitante:", p_data['visitante'])
+
+c_1 = st.sidebar.number_input(f"Cuota 1 ({p_local}):", value=float(p_data['c1']), step=0.01)
+c_x = st.sidebar.number_input("Cuota X (Empate):", value=float(p_data['cx']), step=0.01)
+c_2 = st.sidebar.number_input(f"Cuota 2 ({p_visita}):", value=float(p_data['c2']), step=0.01)
+c_over = st.sidebar.number_input("Cuota Over 2.5 Goles:", value=float(p_data['cover']), step=0.01)
+c_under = st.sidebar.number_input("Cuota Under 2.5 Goles:", value=float(p_data['cunder']), step=0.01)
+ah_line = st.sidebar.number_input("Línea Hándicap Asiático:", value=float(p_data['ah_local']), step=0.25)
+c_ah1 = st.sidebar.number_input("Cuota Hándicap Local:", value=float(p_data['c_ah1']), step=0.01)
 
 # ==============================================================================
-# 4. EJECUCIÓN MATEMÁTICA Y IDENTIFICACIÓN DE INFRAVALORADOS
+# 5. CÁLCULO GENERAL Y EVALUACIÓN DE INFRAVALORADOS
 # ==============================================================================
 probs_shin, insider_z = estimar_shin([c_1, c_x, c_2])
 total_xg = 2.72
@@ -156,7 +243,6 @@ ev_ah = (p_ah * c_ah1 - 1.0) * 100
 ev_t35 = (p_t35 * 1.45 - 1.0) * 100
 ev_c85 = (p_c85 * 1.55 - 1.0) * 100
 
-# Catálogo ampliado con Cálculo de Discrepancia (\Delta Prob) y Cuota Fair
 mercados_evaluados = [
     (f"Hándicap {ah_line} {p_local}", p_ah, ev_ah, c_ah1, 1/p_ah, "Medio"),
     (f"Victoria Local ({p_local})", p_dc_1, ev_1, c_1, 1/p_dc_1, "Bajo"),
@@ -173,7 +259,7 @@ pick_mayor_prob = max(mercados_evaluados, key=lambda x: x[1])
 kelly_val = kelly_criterion(pick_mayor_valor[1], pick_mayor_valor[3]) * 100
 
 # ==============================================================================
-# 5. DESPLIEGUE EN PANTALLA
+# 6. DESPLIEGUE EN INTERFAZ
 # ==============================================================================
 st.markdown(f"""
 <div class="header-card">
@@ -207,7 +293,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Módulo +EV Corregido
 if pick_mayor_valor[2] > 0:
     st.markdown(f"""
     <div class="box-ev">
@@ -232,8 +317,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Pestañas
-tab1, tab2 = st.tabs(["📊 Gráficos", "🔍 Detección de Ineficiencias"])
+tab1, tab2, tab3 = st.tabs(["📊 Gráficos", "🔍 Detección de Ineficiencias", "🎯 Córners & Tarjetas"])
 
 with tab1:
     col1, col2 = st.columns(2)
@@ -262,3 +346,14 @@ with tab2:
         "Nivel Ineficiencia": [m[5] for m in mercados_evaluados]
     }
     st.dataframe(tabla_data, use_container_width=True)
+
+with tab3:
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.markdown(f"**Tiros de Esquina Esperados:** `{exp_corn:.1f}`")
+        st.caption(f"• Over 8.5 Córners: **{p_c85*100:.1f}%**")
+        st.caption(f"• Over 9.5 Córners: **{p_c95*100:.1f}%**")
+    with col_c2:
+        st.markdown(f"**Tarjetas Esperadas:** `{exp_cards:.1f}`")
+        st.caption(f"• Over 3.5 Tarjetas: **{p_t35*100:.1f}%**")
+        st.caption(f"• Over 4.5 Tarjetas: **{p_t45*100:.1f}%**")
