@@ -13,15 +13,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Estilo global para adaptar Streamlit a modo oscuro compacto en móvil
+st.markdown("""
+    <style>
+    .stApp { background-color: #0B0F17; }
+    div[data-testid="stMetricValue"] { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+    .stAlert { padding: 10px 15px; border-radius: 8px; }
+    </style>
+""", unsafe_allow_html=True)
+
 # ==============================================================================
 # 1. MOTOR MATEMÁTICO & MODELO SHIN
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
-    """
-    Desmargina cuotas reales utilizando el Modelo de Shin (1992, 1993)
-    para aislar las probabilidades reales implícitas sin el sesgo de la casa.
-    """
     odds = np.array(odds, dtype=float)
     if np.any(odds <= 1.0):
         return np.array([1/3, 1/3, 1/3]), 0.0
@@ -38,7 +43,6 @@ def desmarginar_shin(odds, max_iter=100, tol=1e-6):
         f = np.sum(np.sqrt(z**2 + 4 * (1 - z) * (implied**2) / beta)) - 2.0
         if abs(f) < tol:
             break
-        # Derivada numérica
         f_prime = np.sum((z - 2 * (implied**2) / beta) / np.sqrt(z**2 + 4 * (1 - z) * (implied**2) / beta))
         if f_prime == 0:
             break
@@ -49,10 +53,7 @@ def desmarginar_shin(odds, max_iter=100, tol=1e-6):
     p_shin = p_shin / np.sum(p_shin)
     return p_shin, z
 
-def calcular_mercados_secundarios(lambda_home, mu_away, exp_corners=9.2, exp_cards=4.2):
-    """
-    Calcula probabilidades estocásticas para mercados secundarios e infravalorados.
-    """
+def calcular_mercados_secundarios(lambda_home, mu_away, exp_corners=9.1, exp_cards=4.0):
     max_g = 7
     p_home = stats.poisson.pmf(np.arange(max_g), lambda_home)
     p_away = stats.poisson.pmf(np.arange(max_g), mu_away)
@@ -67,7 +68,6 @@ def calcular_mercados_secundarios(lambda_home, mu_away, exp_corners=9.2, exp_car
     
     dc_1x = p1 + px
     dc_x2 = px + p2
-    dc_12 = p1 + p2
     
     lambda_ht = lambda_home * 0.44
     mu_ht = mu_away * 0.44
@@ -100,42 +100,50 @@ def calcular_mercados_secundarios(lambda_home, mu_away, exp_corners=9.2, exp_car
     }
 
 # ==============================================================================
-# 2. BARRA LATERAL (PARÁMETROS DE ENTRADA)
+# 2. BARRA LATERAL (RESTAURO DE API, TORNEOS Y PARÁMETROS)
 # ==============================================================================
-st.sidebar.title("⚙️ Parámetros Cuantitativos")
+st.sidebar.title("⚙️ Configuración & API")
 
+# Restauración de API Key y Torneos
+api_key = st.sidebar.text_input("🔑 API Key / Token", type="password", value="••••••••••••")
+torneo = st.sidebar.selectbox(
+    "🏆 Campeonato / Liga",
+    ["Copa Sudamericana", "Copa Libertadores", "Liga Profesional Argentina", "LigaPro Ecuador", "Premier League", "Otra Liga"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚔️ Equipos y Pronóstico")
 home_team = st.sidebar.text_input("Equipo Local", "Montevideo City Torque")
 away_team = st.sidebar.text_input("Equipo Visitante", "CA Tigre BA")
 
 st.sidebar.subheader("⚽ Proyección xG")
-xg_home = st.sidebar.number_input("xG Local", value=0.89, step=0.05, format="%.2f")
-xg_away = st.sidebar.number_input("xG Visitante", value=1.06, step=0.05, format="%.2f")
+col_xg1, col_xg2 = st.sidebar.columns(2)
+xg_home = col_xg1.number_input("xG Local", value=0.89, step=0.05, format="%.2f")
+xg_away = col_xg2.number_input("xG Visitante", value=1.06, step=0.05, format="%.2f")
 
-st.sidebar.subheader("📊 Cuotas del Mercado (1X2)")
-odd_1 = st.sidebar.number_input("Cuota Local (1)", value=3.40, step=0.05)
-odd_x = st.sidebar.number_input("Cuota Empate (X)", value=3.10, step=0.05)
-odd_2 = st.sidebar.number_input("Cuota Visitante (2)", value=2.25, step=0.05)
+st.sidebar.subheader("📊 Cuotas Mercado (1X2)")
+col_o1, col_o2, col_o3 = st.sidebar.columns(3)
+odd_1 = col_o1.number_input("Cuota 1", value=3.40, step=0.05)
+odd_x = col_o2.number_input("Cuota X", value=3.10, step=0.05)
+odd_2 = col_o3.number_input("Cuota 2", value=2.25, step=0.05)
 
 st.sidebar.subheader("🚩 Promedios Auxiliares")
-exp_corners = st.sidebar.number_input("Expectativa Córners", value=9.1, step=0.1)
-exp_cards = st.sidebar.number_input("Expectativa Tarjetas", value=4.0, step=0.1)
+col_ax1, col_ax2 = st.sidebar.columns(2)
+exp_corners = col_ax1.number_input("Córners Exp.", value=9.1, step=0.1)
+exp_cards = col_ax2.number_input("Tarjetas Exp.", value=4.0, step=0.1)
 
-# Bankroll para Kelly
-bankroll = st.sidebar.number_input("Bankroll Disponible ($)", value=1000.0, step=50.0)
+bankroll = st.sidebar.number_input("Bankroll ($)", value=1000.0, step=50.0)
 
 # ==============================================================================
 # 3. PROCESAMIENTO Y CÁLCULOS
 # ==============================================================================
-# Datos de Mercado y Shin
 odds_list = [odd_1, odd_x, odd_2]
 p_shin, z_insider = desmarginar_shin(odds_list)
 
-# Modelo del Usuario
 sec_data = calcular_mercados_secundarios(xg_home, xg_away, exp_corners, exp_cards)
 m_p1, m_px, m_p2 = sec_data['p1'], sec_data['px'], sec_data['p2']
 matrix = sec_data['matrix']
 
-# Análisis de Valor (+EV) sobre 1X2
 ev_1 = (m_p1 * odd_1) - 1
 ev_x = (m_px * odd_x) - 1
 ev_2 = (m_p2 * odd_2) - 1
@@ -144,7 +152,6 @@ evs = [ev_1, ev_x, ev_2]
 best_market_idx = np.argmax(evs)
 max_ev = evs[best_market_idx]
 
-# Criterio Kelly (Fraccionado a 1/4)
 b_odd = odds_list[best_market_idx] - 1
 p_win = [m_p1, m_px, m_p2][best_market_idx]
 q_loss = 1.0 - p_win
@@ -153,117 +160,67 @@ kelly_quarter = max(0.0, kelly_full * 0.25)
 suggested_stake = bankroll * kelly_quarter
 
 # ==============================================================================
-# 4. RENDERIZADO DE LA INTERFAZ
+# 4. INTERFAZ PRINCIPAL (REDISÉÑO COMPACTO Y NATIVO)
 # ==============================================================================
+st.caption(f"🏆 {torneo.upper()}")
 st.title(f"🏟️ {home_team} vs {away_team}")
 st.caption("Evaluación Cuantitativa y Filtrado Anti-Trampas de Mercado")
 
-# --- PANEL SUPERIOR: MERCADOS SECUNDARIOS E INFRAVALORADOS ---
-st.markdown("### 🎯 Panel de Mercados Probables & Opciones Infravaloradas")
-
-st.markdown("""
-    <style>
-    .metric-card {
-        background-color: #0F172A;
-        border: 1px solid #1E293B;
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 10px;
-    }
-    .metric-title {
-        color: #94A3B8;
-        font-size: 0.78rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .metric-value {
-        color: #38BDF8;
-        font-size: 1.25rem;
-        font-weight: 700;
-        font-family: 'JetBrains Mono', monospace;
-    }
-    .metric-sub {
-        color: #10B981;
-        font-size: 0.82rem;
-        font-weight: 500;
-    }
-    .badge-value {
-        background-color: #064E3B;
-        color: #34D399;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.markdown("#### 🔮 Tendencia Directional y Mercados Probables")
 
 col_s1, col_s2, col_s3, col_s4 = st.columns(4)
 
 btts_label = "SÍ" if sec_data['btts_yes'] > sec_data['btts_no'] else "NO"
 btts_prob = max(sec_data['btts_yes'], sec_data['btts_no']) * 100
 with col_s1:
-    st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">⚽ Ambos Anotan (BTTS)</div>
-            <div class="metric-value">{btts_label} ({btts_prob:.1f}%)</div>
-            <div class="metric-sub">Cuota Justa: <b>@{100/btts_prob:.2f}</b></div>
-        </div>
-    """, unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("⚽ AMBOS ANOTAN (BTTS)")
+        st.subheader(f"{btts_label} ({btts_prob:.1f}%)")
+        st.caption(f"Cuota Justa: @{100/btts_prob:.2f}")
 
 if sec_data['corners_o85'] >= 0.65:
     corn_text, corn_prob = "Over 8.5", sec_data['corners_o85'] * 100
 else:
     corn_text, corn_prob = "Under 10.5", sec_data['corners_u105'] * 100
 with col_s2:
-    st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">🚩 Tiros de Esquina</div>
-            <div class="metric-value">{corn_text}</div>
-            <div class="metric-sub">Prob: <b>{corn_prob:.1f}%</b> | Cuota: <b>@{100/corn_prob:.2f}</b></div>
-        </div>
-    """, unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("🚩 TIROS DE ESQUINA")
+        st.subheader(f"{corn_text}")
+        st.caption(f"Prob: {corn_prob:.1f}% | Cuota: @{100/corn_prob:.2f}")
 
 if sec_data['cards_o35'] >= 0.60:
     card_text, card_prob = "Over 3.5", sec_data['cards_o35'] * 100
 else:
     card_text, card_prob = "Under 5.5", sec_data['cards_u55'] * 100
 with col_s3:
-    st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">🟨 Tarjetas Totales</div>
-            <div class="metric-value">{card_text}</div>
-            <div class="metric-sub">Prob: <b>{card_prob:.1f}%</b> | Cuota: <b>@{100/card_prob:.2f}</b></div>
-        </div>
-    """, unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("🟨 TARJETAS TOTALES")
+        st.subheader(f"{card_text}")
+        st.caption(f"Prob: {card_prob:.1f}% | Cuota: @{100/card_prob:.2f}")
 
 top_nombre, top_prob, top_cuota = sec_data['top_infravalorado']
 with col_s4:
-    st.markdown(f"""
-        <div class="metric-card" style="border-color: #059669;">
-            <div class="metric-title" style="color: #34D399;">💎 Selección Alta Cobertura</div>
-            <div class="metric-value" style="color: #F8FAFC; font-size: 1.05rem;">{top_nombre}</div>
-            <div class="metric-sub">Prob: <b>{top_prob*100:.1f}%</b> <span class="badge-value">@{top_cuota}</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("💎 ALTA COBERTURA")
+        st.subheader(f"{top_nombre}")
+        st.caption(f"Prob: {top_prob*100:.1f}% | Cuota: @{top_cuota}")
 
 st.markdown("---")
 
-# --- INDICADORES CUANTITATIVOS SECUNDARIOS ---
+# --- MÉTRICAS CUANTITATIVAS ---
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 col_m1.metric("EV HÁNDICAP", f"{((m_p1 - m_p2)*100):.1f}%")
-col_m2.metric("EV MERCADO 1X2", f"{max_ev*100:+.1f}%", delta_color="normal" if max_ev > 0 else "inverse")
+col_m2.metric("EV MERCADO 1X2", f"{max_ev*100:+.1f}%")
 col_m3.metric("xG IMPLÍCITOS", f"{xg_home:.2f} / {xg_away:.2f}")
 col_m4.metric("SHIN (INSIDER Z)", f"{z_insider:.4f}")
 
-# --- BLOQUE DE SEGURIDAD Y EJECUCIÓN ---
-UMBRAL_EV = 0.025 # 2.5% mínimo
+# --- FILTRO ANTI-TRAMPAS ---
+UMBRAL_EV = 0.025
 if max_ev < UMBRAL_EV:
-    st.warning(f"⚠️ **ABSTENERSE / BLOQUEO DE SEGURIDAD**: No existe ventaja financiera (+EV de {max_ev*100:.1f}% es inferior al umbral mínimo del {UMBRAL_EV*100:.1f}%).")
+    st.warning(f"⚠️ **ABSTENERSE / BLOQUEO DE SEGURIDAD**: No existe ventaja financiera (+EV de {max_ev*100:.1f}% es inferior al umbral del 2.5%). Execution cancelada para proteger el capital.")
     suggested_stake = 0.0
 else:
-    st.success(f"🚀 **VENTAJA ENCONTRADA**: Valor detectado del {max_ev*100:.1f}%.")
+    st.success(f"🚀 **VENTAJA DETECTADA**: Esperanza Matemática (+EV) del {max_ev*100:.1f}%.")
 
 col_e1, col_e2, col_e3, col_e4 = st.columns(4)
 nombres_mkt = [home_team, "Empate (X)", away_team]
@@ -275,7 +232,7 @@ col_e4.metric("Stake Sugerido (Kelly 1/4)", f"${suggested_stake:.1f} ({kelly_qua
 st.markdown("---")
 
 # ==============================================================================
-# 5. VISUALIZACIONES (GRÁFICOS DE ALTO CONTRASTE)
+# 5. VISUALIZACIONES CORREGIDAS PARA MÓVIL
 # ==============================================================================
 col_g1, col_g2 = st.columns(2)
 
@@ -285,46 +242,44 @@ away_short = away_team[:3].upper() if len(away_team) > 3 else away_team.upper()
 with col_g1:
     st.markdown("##### 📊 Comparativa de Probabilidades (1X2)")
     categories = [f"{home_short} (1)", "EMP (X)", f"{away_short} (2)"]
-    max_y = max(m_p1, m_px, m_p2, p_shin[0], p_shin[1], p_shin[2]) * 100
     
     fig_bar = go.Figure(data=[
         go.Bar(
             name='Tu Modelo',
             x=categories,
             y=[m_p1*100, m_px*100, m_p2*100],
-            marker=dict(color='#10B981', line=dict(color='#059669', width=1)),
+            marker=dict(color='#10B981'),
             text=[f"{m_p1*100:.1f}%", f"{m_px*100:.1f}%", f"{m_p2*100:.1f}%"],
-            textposition='outside',
-            textfont=dict(size=11, color='#F8FAFC', family='JetBrains Mono')
+            textposition='inside',
+            textfont=dict(size=12, color='#FFFFFF')
         ),
         go.Bar(
             name='Mercado Shin',
             x=categories,
             y=[p_shin[0]*100, p_shin[1]*100, p_shin[2]*100],
-            marker=dict(color='#6366F1', line=dict(color='#4F46E5', width=1)),
+            marker=dict(color='#6366F1'),
             text=[f"{p_shin[0]*100:.1f}%", f"{p_shin[1]*100:.1f}%", f"{p_shin[2]*100:.1f}%"],
-            textposition='outside',
-            textfont=dict(size=11, color='#93C5FD', family='JetBrains Mono')
+            textposition='inside',
+            textfont=dict(size=12, color='#FFFFFF')
         )
     ])
     fig_bar.update_layout(
         barmode='group',
-        height=310,
-        margin=dict(l=10, r=10, t=35, b=10),
+        height=320,
+        margin=dict(l=10, r=10, t=25, b=25),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        legend=dict(orientation="h", y=1.1, x=1, font=dict(size=11, color="#E2E8F0")),
+        legend=dict(orientation="h", y=1.15, x=0, font=dict(size=11, color="#E2E8F0")),
         font=dict(color="#E2E8F0"),
         xaxis=dict(fixedrange=True, tickfont=dict(size=11, color="#94A3B8")),
-        yaxis=dict(fixedrange=True, showgrid=True, gridcolor='#1E293B', showticklabels=False, range=[0, max_y * 1.25])
+        yaxis=dict(fixedrange=True, showgrid=True, gridcolor='#1E293B', showticklabels=True)
     )
     st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
 
 with col_g2:
-    st.markdown("##### 🔥 Matriz de Marcadores (Tu Modelo)")
+    st.markdown("##### 🔥 Matriz de Marcadores Probables")
     df_m = np.round(matrix[:5, :5] * 100, 1)
     
-    # Paleta de Alto Contraste Dark Slate -> Sky Blue
     custom_colorscale = [
         [0.0, "#0F172A"],
         [0.25, "#1E293B"],
@@ -339,15 +294,15 @@ with col_g2:
         y=[f"{i}" for i in range(5)],
         colorscale=custom_colorscale,
         showscale=False,
-        xgap=3, ygap=3,
+        xgap=2, ygap=2,
         text=df_m,
         texttemplate="%{text:.1f}%",
-        textfont=dict(size=11, family='JetBrains Mono', color="#F8FAFC")
+        textfont=dict(size=11, family='JetBrains Mono', color="#FFFFFF")
     ))
 
     fig_hm.update_layout(
-        height=310,
-        margin=dict(l=10, r=10, t=10, b=10),
+        height=320,
+        margin=dict(l=10, r=10, t=10, b=25),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         font=dict(color="#E2E8F0"),
