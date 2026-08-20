@@ -3,13 +3,12 @@ import numpy as np
 import scipy.stats as stats
 import plotly.graph_objects as go
 import requests
-import datetime
 
 # ==============================================================================
-# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL PRO COMPACTO)
+# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS (DISEÑO MÓVIL DENSIDAD ALTA)
 # ==============================================================================
 st.set_page_config(
-    page_title="CuantiBet Pro Engine v2.0",
+    page_title="CuantiBet Pro Engine v3.0",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -137,7 +136,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MOTOR QUANT AVANZADO (DESMARGINADO SHIN, DIXON-COLES & BINOMIAL NEGATIVA)
+# 2. MOTOR QUANT (DIXON-COLES, SHIN & BINOMIAL NEGATIVA)
 # ==============================================================================
 
 def desmarginar_shin(odds, max_iter=100, tol=1e-6):
@@ -158,20 +157,13 @@ def desmarginar_shin(odds, max_iter=100, tol=1e-6):
     return p_shin / np.sum(p_shin), z
 
 def dixon_coles_tau(x, y, lambda_h, mu_a, rho=-0.11):
-    """Ajuste de correlación de bajas anotaciones (Dixon-Coles) con rho optimizado."""
-    if x == 0 and y == 0:
-        return 1.0 - (lambda_h * mu_a * rho)
-    elif x == 0 and y == 1:
-        return 1.0 + (lambda_h * rho)
-    elif x == 1 and y == 0:
-        return 1.0 + (mu_a * rho)
-    elif x == 1 and y == 1:
-        return 1.0 - rho
-    else:
-        return 1.0
+    if x == 0 and y == 0: return 1.0 - (lambda_h * mu_a * rho)
+    elif x == 0 and y == 1: return 1.0 + (lambda_h * rho)
+    elif x == 1 and y == 0: return 1.0 + (mu_a * rho)
+    elif x == 1 and y == 1: return 1.0 - rho
+    else: return 1.0
 
 def calcular_matriz_bivariada(lambda_h, mu_a, max_goals=6):
-    """Matriz estocástica con ajuste dinámico de xG sin constante hardcoded."""
     matrix = np.zeros((max_goals + 1, max_goals + 1))
     for i in range(max_goals + 1):
         for j in range(max_goals + 1):
@@ -180,18 +172,11 @@ def calcular_matriz_bivariada(lambda_h, mu_a, max_goals=6):
             tau = dixon_coles_tau(i, j, lambda_h, mu_a)
             matrix[i, j] = p_i * p_j * tau
             
-    # Normalización matricial
     matrix = matrix / np.sum(matrix)
     p1 = float(np.sum(np.tril(matrix, -1)))
     px = float(np.sum(np.diag(matrix)))
     p2 = float(np.sum(np.triu(matrix, 1)))
     return matrix, p1, px, p2
-
-def prob_neg_binomial(k, mean, dispersion=1.25):
-    """Modelo Binomial Negativa para corregir sobredispersión en córners y tarjetas."""
-    r = mean / (dispersion - 1.0) if dispersion > 1.0 else 10.0
-    p = r / (r + mean)
-    return stats.nbinom.pmf(k, r, p)
 
 def cdf_neg_binomial(k, mean, dispersion=1.25):
     r = mean / (dispersion - 1.0) if dispersion > 1.0 else 10.0
@@ -199,17 +184,14 @@ def cdf_neg_binomial(k, mean, dispersion=1.25):
     return stats.nbinom.cdf(k, r, p)
 
 def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, px, p2):
-    # BTTS derivado directamente de la matriz bivariada
     matrix, _, _, _ = calcular_matriz_bivariada(lambda_h, mu_a)
     p_btts_no = np.sum(matrix[0, :]) + np.sum(matrix[:, 0]) - matrix[0, 0]
     p_btts_yes = 1.0 - p_btts_no
     
-    # Córners con Binomial Negativa (Sobredispersión = 1.35)
     line_corners = 9.5
     prob_under_corners = float(cdf_neg_binomial(line_corners, corners_avg, dispersion=1.35))
     prob_over_corners = 1.0 - prob_under_corners
     
-    # Tarjetas con Binomial Negativa (Sobredispersión = 1.45 por árbitro/derbi)
     line_cards = 4.5
     prob_under_cards = float(cdf_neg_binomial(line_cards, cards_avg, dispersion=1.45))
     prob_over_cards = 1.0 - prob_under_cards
@@ -222,173 +204,81 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
         ("Over 4.5 Tarjetas", prob_over_cards, 1.0 / max(0.01, prob_over_cards))
     ]
     candidatos.sort(key=lambda x: x[1], reverse=True)
-    top_cobertura = candidatos[0]
     
     return {
         "btts": ("SÍ", p_btts_yes, 1/p_btts_yes) if p_btts_yes >= 0.50 else ("NO", p_btts_no, 1/p_btts_no),
         "corners": (f"Under {line_corners}", prob_under_corners, 1/prob_under_corners) if prob_under_corners >= 0.50 else (f"Over {line_corners}", prob_over_corners, 1/prob_over_corners),
         "cards": (f"Under {line_cards}", prob_under_cards, 1/prob_under_cards) if prob_under_cards >= 0.50 else (f"Over {line_cards}", prob_over_cards, 1/prob_over_cards),
-        "cobertura": top_cobertura
+        "cobertura": candidatos[0]
     }
 
 # ==============================================================================
-# BASE DE DATOS LOCAL MASIVA (RESPALDO INTEGRAL)
+# 3. BASE DE DATOS LOCAL Y CONEXIÓN A APIs
 # ==============================================================================
 
 DATABASE_COMPLETA = {
     "🏆 CONMEBOL Sudamericana": {
-        "CSD Macará vs Santos FC": {
-            "home": "CSD Macará", "away": "Santos FC",
-            "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75,
-            "corners": 9.2, "cards": 5.4
-        },
-        "LDU Quito vs Lanús": {
-            "home": "LDU Quito", "away": "Lanús",
-            "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10,
-            "corners": 10.2, "cards": 5.2
-        },
-        "Montevideo City Torque vs CA Tigre BA": {
-            "home": "Montevideo City Torque", "away": "CA Tigre BA",
-            "xg_home": 0.89, "xg_away": 1.06, "odd_1": 3.40, "odd_x": 3.10, "odd_2": 2.25,
-            "corners": 9.1, "cards": 4.0
-        },
-        "Independiente Medellín vs Defensa y Justicia": {
-            "home": "DIM", "away": "Defensa y Justicia",
-            "xg_home": 1.40, "xg_away": 1.10, "odd_1": 2.15, "odd_x": 3.20, "odd_2": 3.50,
-            "corners": 9.8, "cards": 4.8
-        }
+        "CSD Macará vs Santos FC": {"home": "CSD Macará", "away": "Santos FC", "xg_home": 1.25, "xg_away": 1.15, "odd_1": 2.60, "odd_x": 3.10, "odd_2": 2.75, "corners": 9.2, "cards": 5.4},
+        "LDU Quito vs Lanús": {"home": "LDU Quito", "away": "Lanús", "xg_home": 1.65, "xg_away": 0.85, "odd_1": 1.95, "odd_x": 3.30, "odd_2": 4.10, "corners": 10.2, "cards": 5.2}
     },
     "🏆 CONMEBOL Libertadores": {
-        "Flamengo vs Palmeiras": {
-            "home": "Flamengo", "away": "Palmeiras",
-            "xg_home": 1.55, "xg_away": 1.10, "odd_1": 2.10, "odd_x": 3.25, "odd_2": 3.60,
-            "corners": 10.0, "cards": 6.0
-        },
-        "River Plate vs Independiente del Valle": {
-            "home": "River Plate", "away": "IDV",
-            "xg_home": 1.80, "xg_away": 0.90, "odd_1": 1.70, "odd_x": 3.60, "odd_2": 5.25,
-            "corners": 9.4, "cards": 4.5
-        },
-        "Peñarol vs Atlético Mineiro": {
-            "home": "Peñarol", "away": "Atlético Mineiro",
-            "xg_home": 1.15, "xg_away": 1.35, "odd_1": 2.90, "odd_x": 3.10, "odd_2": 2.50,
-            "corners": 8.9, "cards": 5.5
-        }
+        "Flamengo vs Palmeiras": {"home": "Flamengo", "away": "Palmeiras", "xg_home": 1.55, "xg_away": 1.10, "odd_1": 2.10, "odd_x": 3.25, "odd_2": 3.60, "corners": 10.0, "cards": 6.0}
     },
     "🏆 UEFA Champions League": {
-        "Real Madrid vs Manchester City": {
-            "home": "Real Madrid", "away": "Manchester City",
-            "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75,
-            "corners": 10.2, "cards": 4.2
-        },
-        "Bayern München vs Paris Saint-Germain": {
-            "home": "Bayern München", "away": "PSG",
-            "xg_home": 1.85, "xg_away": 1.30, "odd_1": 2.00, "odd_x": 3.70, "odd_2": 3.40,
-            "corners": 9.8, "cards": 4.5
-        },
-        "Inter Milan vs FC Barcelona": {
-            "home": "Inter Milan", "away": "FC Barcelona",
-            "xg_home": 1.45, "xg_away": 1.40, "odd_1": 2.55, "odd_x": 3.40, "odd_2": 2.65,
-            "corners": 9.3, "cards": 4.8
-        }
-    },
-    "🇪🇨 LigaPro (Ecuador)": {
-        "Barcelona SC vs Emelec": {
-            "home": "Barcelona SC", "away": "Emelec",
-            "xg_home": 1.50, "xg_away": 1.05, "odd_1": 2.05, "odd_x": 3.20, "odd_2": 3.70,
-            "corners": 9.5, "cards": 5.8
-        },
-        "Independiente del Valle vs Aucas": {
-            "home": "IDV", "away": "Aucas",
-            "xg_home": 1.95, "xg_away": 0.80, "odd_1": 1.55, "odd_x": 3.90, "odd_2": 6.00,
-            "corners": 10.1, "cards": 4.2
-        },
-        "LDU Quito vs Universidad Católica": {
-            "home": "LDU Quito", "away": "U. Católica",
-            "xg_home": 1.70, "xg_away": 1.10, "odd_1": 1.85, "odd_x": 3.40, "odd_2": 4.20,
-            "corners": 9.9, "cards": 5.1
-        }
+        "Real Madrid vs Manchester City": {"home": "Real Madrid", "away": "Manchester City", "xg_home": 1.70, "xg_away": 1.55, "odd_1": 2.45, "odd_x": 3.50, "odd_2": 2.75, "corners": 10.2, "cards": 4.2}
     }
 }
 
-# ==============================================================================
-# CONEXIÓN API ROBUSTA
-# ==============================================================================
-
-def fetch_api_data(endpoint, api_key):
+def fetch_odds_api(api_key, sport="soccer_epl"):
     clean_key = api_key.strip()
-    if not clean_key:
-        return None, "La clave API está vacía."
-
-    url_direct = f"https://v3.football.api-sports.io/{endpoint}"
-    headers_direct = {"x-apisports-key": clean_key}
-    
+    if not clean_key: return None, "Key vacía"
+    url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds/"
+    params = {"apiKey": clean_key, "regions": "eu", "markets": "h2h", "dateFormat": "iso"}
     try:
-        res = requests.get(url_direct, headers=headers_direct, timeout=6)
+        res = requests.get(url, params=params, timeout=5)
         if res.status_code == 200:
             data = res.json()
-            errors = data.get("errors", {})
-            if not errors or (isinstance(errors, list) and len(errors) == 0):
-                return data.get("response", []), None
-    except Exception:
-        pass
-
-    url_rapid = f"https://api-football-v1.p.rapidapi.com/v3/{endpoint}"
-    headers_rapid = {
-        "x-rapidapi-key": clean_key,
-        "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
-    }
-    
-    try:
-        res_r = requests.get(url_rapid, headers=headers_rapid, timeout=6)
-        if res_r.status_code == 200:
-            data_r = res_r.json()
-            errors_r = data_r.get("errors", {})
-            if not errors_r or (isinstance(errors_r, list) and len(errors_r) == 0):
-                return data_r.get("response", []), None
-            else:
-                return None, "Clave no válida o sin suscripción activa."
-        elif res_r.status_code == 401:
-            return None, "Clave API rechazada (401)."
+            return (data, None) if len(data) > 0 else (None, "Sin eventos próximos.")
+        return None, f"Clave API no válida ({res.status_code})."
     except Exception as e:
-        return None, f"Error de conexión: {str(e)}"
-        
-    return None, "La clave API ingresada no fue reconocida."
+        return None, str(e)
 
 # ==============================================================================
-# CONTROLES Y NAVEGACIÓN
+# 4. BARRA LATERAL Y SELECCIÓN DE PARTIDOS
 # ==============================================================================
 
 st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Consulta partidos en tiempo real vía API-Football / RapidAPI")
+api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Pega aquí tu clave de API-Football o The Odds API")
 
 match_data = None
 loaded_via_api = False
 
 if api_key:
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
-    with st.sidebar.spinner("Cargando cartelera de hoy..."):
-        fixtures_today, err = fetch_api_data(f"fixtures?date={today_str}", api_key)
-    
+    with st.sidebar.spinner("Consultando servicio API..."):
+        odds_events, err = fetch_odds_api(api_key)
     if err:
         st.sidebar.error(f"❌ {err}")
-    elif fixtures_today and len(fixtures_today) > 0:
-        dict_fixtures = {
-            f"{f['league']['name']}: {f['teams']['home']['name']} vs {f['teams']['away']['name']}": f 
-            for f in fixtures_today
-        }
-        selected_match_label = st.sidebar.selectbox("📅 Partidos de Hoy (API)", list(dict_fixtures.keys()))
-        f_raw = dict_fixtures[selected_match_label]
-        
-        match_data = {
-            "home": f_raw['teams']['home']['name'],
-            "away": f_raw['teams']['away']['name'],
-            "xg_home": 1.45, "xg_away": 1.10,
-            "odd_1": 2.20, "odd_x": 3.20, "odd_2": 3.40,
-            "corners": 9.5, "cards": 4.5
-        }
+    elif odds_events:
+        dict_matches = {}
+        for ev in odds_events:
+            h, a = ev.get('home_team', 'Home'), ev.get('away_team', 'Away')
+            o1, ox, o2 = 2.10, 3.20, 3.40
+            if ev.get('bookmakers'):
+                for m in ev['bookmakers'][0].get('markets', []):
+                    if m.get('key') == 'h2h':
+                        outcomes = {o['name']: o['price'] for o in m.get('outcomes', [])}
+                        o1, ox, o2 = outcomes.get(h, 2.10), outcomes.get('Draw', 3.20), outcomes.get(a, 3.40)
+            
+            dict_matches[f"{h} vs {a}"] = {
+                "home": h, "away": a,
+                "xg_home": 1.45, "xg_away": 1.10,
+                "odd_1": o1, "odd_x": ox, "odd_2": o2,
+                "corners": 9.5, "cards": 4.5
+            }
+        selected_match_label = st.sidebar.selectbox("📅 Partidos en Vivo", list(dict_matches.keys()))
+        match_data = dict_matches[selected_match_label]
         loaded_via_api = True
-        st.sidebar.success(f"🟢 {len(fixtures_today)} partidos sincronizados.")
+        st.sidebar.success(f"🟢 {len(odds_events)} partidos sincronizados.")
 
 if not loaded_via_api:
     selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()))
@@ -407,7 +297,7 @@ corners_avg = match_data.get("corners", 9.5)
 cards_avg = match_data.get("cards", 4.5)
 
 # ==============================================================================
-# EJECUCIÓN DEL MOTOR REVISADO
+# 5. CÁLCULOS PRINCIPALES DEL MODELO
 # ==============================================================================
 
 matrix, p1, px, p2 = calcular_matriz_bivariada(xg_h, xg_a)
@@ -428,18 +318,18 @@ score_prob = matrix[max_pos] * 100
 prob_under_25 = sum(matrix[i, j] for i in range(3) for j in range(3) if i + j <= 2) * 100
 
 line_str = f"{away_team} +1.0" if p2 >= p1 else f"{home_team} -0.5"
-fav_str = f"Dominio Estocástico: {away_team}" if p2 >= p1 else f"Dominio Estocástico: {home_team}"
+fav_short = home_team[:10] if p1 >= p2 else away_team[:10]
 
 alt_markets = calcular_mercados_alternativos(xg_h, xg_a, corners_avg, cards_avg, p1, px, p2)
 
 # ==============================================================================
-# RENDERIZADO DEL DASHBOARD PRINCIPAL
+# 6. RENDERIZADO IDÉNTICO A LA CAPTURA DE PANTALLA
 # ==============================================================================
 
 st.markdown(f'''
     <div class="hero-card">
         <div class="hero-title">🏟️ {home_team} vs {away_team}</div>
-        <div class="hero-sub">Evaluación Cuantitativa Ajustada (Dixon-Coles & Binomial Negativa)</div>
+        <div class="hero-sub">EVALUACIÓN CUANTITATIVA AJUSTADA (DIXON-COLES & BINOMIAL NEGATIVA)</div>
     </div>
 ''', unsafe_allow_html=True)
 
@@ -492,17 +382,17 @@ st.markdown(f'''
         <div class="dash-card">
             <div class="dash-label">LÍNEA RECOMENDADA</div>
             <div class="dash-value">{line_str}</div>
-            <div class="dash-sub">{fav_str}</div>
+            <div class="dash-sub">Dominio Estocástico: {fav_short}</div>
         </div>
     </div>
 ''', unsafe_allow_html=True)
 
 col_m1, col_m2 = st.columns(2)
 with col_m1:
-    st.markdown('''
+    st.markdown(f'''
         <div class="metric-card">
             <div class="metric-label">MARGINALIDAD SHIN (Z-INDEX)</div>
-            <div class="metric-val-pos">''' + f"{z_val*100:.2f}%" + '''</div>
+            <div class="metric-val-pos">{z_val*100:.2f}%</div>
         </div>
     ''', unsafe_allow_html=True)
 
@@ -515,23 +405,6 @@ with col_m2:
             <div class="{ev_class}">{best_ev*100:+.1f}%</div>
         </div>
     ''', unsafe_allow_html=True)
-
-st.markdown('<div class="section-title">📝 DIAGNÓSTICO DEL ALGORITMO Y BANKROLL</div>', unsafe_allow_html=True)
-
-if best_ev >= 0.01:
-    stake_recommendation = f"1.0% Bankroll (Fractional Kelly Acotado sobre {names_1x2[best_scen_idx]})"
-else:
-    stake_recommendation = "NULO (0.0% Bankroll - Bloqueado por EV Negativo o Ajuste Shin)"
-
-st.markdown(f'''
-    <div class="analysis-box">
-        <b>💡 Diagnóstico del Motor Quant Corregido:</b><br>
-        • Tendencia principal: <b>{names_1x2[best_scen_idx]} ({probs_1x2[best_scen_idx]*100:.1f}%)</b>.<br>
-        • Marcador individual con mayor densidad de probabilidad en matriz bivariada: <b>{score_str} ({score_prob:.1f}%)</b>.<br>
-        • Córners y Tarjetas evaluados mediante distribución Binomial Negativa para corregir la sobredispersión del arbitraje y ritmo de juego.<br>
-        • <b>Recomendación de Capital:</b> Stake {stake_recommendation}.
-    </div>
-''', unsafe_allow_html=True)
 
 st.markdown('<div class="section-title">📊 COMPARATIVA MODELO VS SHIN Y MATRIZ BIVARIADA</div>', unsafe_allow_html=True)
 
