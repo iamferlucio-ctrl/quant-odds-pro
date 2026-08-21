@@ -180,7 +180,6 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
     
     line_corners = 9.5
     prob_under_corners = float(cdf_neg_binomial(line_corners, corners_avg, dispersion=1.35))
-    prob_over_corners = 1.0 - prob_under_corners
     
     line_cards = 4.5
     prob_under_cards = float(cdf_neg_binomial(line_cards, cards_avg, dispersion=1.45))
@@ -197,17 +196,16 @@ def calcular_mercados_alternativos(lambda_h, mu_a, corners_avg, cards_avg, p1, p
     
     return {
         "btts": ("SÍ", p_btts_yes, 1/p_btts_yes) if p_btts_yes >= 0.50 else ("NO", p_btts_no, 1/p_btts_no),
-        "corners": (f"Under {line_corners}", prob_under_corners, 1/prob_under_corners) if prob_under_corners >= 0.50 else (f"Over {line_corners}", prob_over_corners, 1/prob_over_corners),
+        "corners": (f"Under {line_corners}", prob_under_corners, 1/prob_under_corners) if prob_under_corners >= 0.50 else (f"Over {line_corners}", 1.0-prob_under_corners, 1/(1.0-prob_under_corners)),
         "cards": (f"Under {line_cards}", prob_under_cards, 1/prob_under_cards) if prob_under_cards >= 0.50 else (f"Over {line_cards}", prob_over_cards, 1/prob_over_cards),
         "cobertura": candidatos[0]
     }
 
 # ==============================================================================
-# 3. FUNCIONES DINÁMICAS PARA THE ODDS API
+# 3. FUNCIONES DE CONEXIÓN A APIs
 # ==============================================================================
 
 def get_active_soccer_sports(api_key):
-    """Obtiene la lista de ligas y copas de fútbol disponibles en tiempo real."""
     url = "https://api.the-odds-api.com/v4/sports/"
     params = {"apiKey": api_key.strip()}
     try:
@@ -219,12 +217,11 @@ def get_active_soccer_sports(api_key):
                 if s.get('group') in ['Soccer', 'Fútbol'] and s.get('active', False)
             }
             return soccer_sports, None
-        return {}, f"Error {res.status_code}: Clave no válida"
+        return {}, f"Error {res.status_code}: Odds-API inválida"
     except Exception as e:
         return {}, str(e)
 
 def get_odds_for_sport(api_key, sport_key):
-    """Obtiene los partidos y cuotas para la liga seleccionada."""
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     params = {"apiKey": api_key.strip(), "regions": "eu", "markets": "h2h", "dateFormat": "iso"}
     try:
@@ -234,6 +231,19 @@ def get_odds_for_sport(api_key, sport_key):
         return [], f"Status {res.status_code}"
     except Exception as e:
         return [], str(e)
+
+def verify_api_football_key(api_key):
+    if not api_key:
+        return False, "Llave no ingresada"
+    url = "https://v3.football.api-sports.io/status"
+    headers = {"x-apisports-key": api_key.strip()}
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200 and res.json().get('response', {}).get('account'):
+            return True, "Conectado"
+        return False, "Fallo de Autenticación"
+    except:
+        return False, "Error de Conexión"
 
 # Base local de respaldo
 DATABASE_COMPLETA = {
@@ -250,36 +260,32 @@ DATABASE_COMPLETA = {
 }
 
 # ==============================================================================
-# 4. BARRA LATERAL RESTAURADA (LIGAS + PARTIDOS FECHADOS)
+# 4. BARRA LATERAL (ENTRADA DUAL DE KEYS + SELECCIÓN COMPLETA)
 # ==============================================================================
 
-st.sidebar.title("⚽ Navegación & Filtros")
-api_key = st.sidebar.text_input("🔑 API Key (Opcional)", type="password", help="Pega aquí tu clave de The Odds API")
+st.sidebar.markdown("### 🎛️ Motor Híbrido Dual-API")
+
+odds_api_key = st.sidebar.text_input("🔑 The Odds API Key", type="password", help="Obtiene partidos y cuotas 1X2")
+football_api_key = st.sidebar.text_input("🔑 API-Football Key", type="password", help="Obtiene métricas avanzadas (xG, córners, tarjetas)")
 
 match_data = None
 loaded_via_api = False
+odds_api_status = False
+football_api_status, football_msg = verify_api_football_key(football_api_key)
 
-if api_key:
-    with st.sidebar.spinner("Cargando catálogo de ligas..."):
-        sports_dict, err_sports = get_active_soccer_sports(api_key)
-    
-    if err_sports:
-        st.sidebar.error(f"❌ {err_sports}")
-    elif sports_dict:
+if odds_api_key:
+    sports_dict, err_sports = get_active_soccer_sports(odds_api_key)
+    if sports_dict:
+        odds_api_status = True
         selected_league_title = st.sidebar.selectbox("🏆 Campeonato / Liga", list(sports_dict.keys()))
         selected_sport_key = sports_dict[selected_league_title]
         
-        with st.sidebar.spinner("Cargando partidos..."):
-            events, err_events = get_odds_for_sport(api_key, selected_sport_key)
-            
-        if err_events:
-            st.sidebar.error(f"❌ {err_events}")
-        elif events:
+        events, err_events = get_odds_for_sport(odds_api_key, selected_sport_key)
+        if events:
             dict_matches = {}
             for ev in events:
                 h, a = ev.get('home_team', 'Home'), ev.get('away_team', 'Away')
                 
-                # Formatear fecha/hora del partido
                 commence_time = ev.get('commence_time', '')
                 date_str = ""
                 if commence_time:
@@ -304,18 +310,29 @@ if api_key:
                     "corners": 9.5, "cards": 4.5
                 }
             
-            selected_match_label = st.sidebar.selectbox("📅 Partido por Jugar", list(dict_matches.keys()))
+            selected_match_label = st.sidebar.selectbox("📅 Partidos Disponibles", list(dict_matches.keys()))
             match_data = dict_matches[selected_match_label]
             loaded_via_api = True
-            st.sidebar.success(f"🟢 {len(events)} partidos en {selected_league_title}")
-        else:
-            st.sidebar.warning("No hay partidos programados en esta liga.")
 
+# Fallback local si no se usa Odds API
 if not loaded_via_api:
     selected_league = st.sidebar.selectbox("🏆 Campeonato / Liga", list(DATABASE_COMPLETA.keys()))
     matches = DATABASE_COMPLETA[selected_league]
-    selected_match = st.sidebar.selectbox("📅 Partido por Jugar", list(matches.keys()))
+    selected_match = st.sidebar.selectbox("📅 Partidos Disponibles", list(matches.keys()))
     match_data = matches[selected_match]
+
+st.sidebar.markdown("---")
+
+# Indicadores de Estado Visuales
+if odds_api_status:
+    st.sidebar.markdown("🟢 **Odds API:** Mercado 1X2 Conectado")
+else:
+    st.sidebar.markdown("🔴 **Odds API:** No Conectado / Modo Local")
+
+if football_api_status:
+    st.sidebar.markdown(f"🟢 **API-Football:** {football_msg}")
+else:
+    st.sidebar.markdown(f"🔴 **API-Football:** {football_msg}")
 
 home_team = match_data["home"]
 away_team = match_data["away"]
